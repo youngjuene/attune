@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0",
+  "collection": {
+    "id": "attune-cardinal-fixture",
+    "title": "attune cardinal fixture",
+    "description": "Four deterministic targets 100 metres from the Seoul origin",
+    "defaultSpatialRadiusM": 3
+  },
+  "map": {
+    "distanceScale": "linear",
+    "maxDistanceM": 100
+  },
+  "recordings": [
+    {
+      "id": "north",
+      "title": "North",
+      "audioUrl": "../audio/test-tone.wav",
+      "mimeType": "audio/wav",
+      "location": {
+        "lat": 37.567399320364,
+        "lon": 126.978
+      },
+      "spatialFormat": "point-source"
+    },
+    {
+      "id": "east",
+      "title": "East",
+      "audioUrl": "../audio/test-tone.wav",
+      "mimeType": "audio/wav",
+      "location": {
+        "lat": 37.566499994571,
+        "lon": 126.979134579723
+      },
+      "spatialFormat": "point-source"
+    },
+    {
+      "id": "south",
+      "title": "South",
+      "audioUrl": "../audio/test-tone.wav",
+      "mimeType": "audio/wav",
+      "location": {
+        "lat": 37.565600679636,
+        "lon": 126.978
+      },
+      "spatialFormat": "point-source"
+    },
+    {
+      "id": "west",
+      "title": "West",
+      "audioUrl": "../audio/test-tone.wav",
+      "mimeType": "audio/wav",
+      "location": {
+        "lat": 37.566499994571,
+        "lon": 126.976865420277
+      },
+      "spatialFormat": "point-source"
+    }
+  ]
+}
