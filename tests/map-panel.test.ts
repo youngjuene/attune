@@ -149,6 +149,20 @@ describe('WP-4 canvas map panel', () => {
     expect(panel.hitTest(950, 550, 13)).toEqual({ type: 'EXIT_XR' });
   });
 
+  test('classifies pointer targets for the reticle without redrawing the canvas', () => {
+    panel = createMapPanel(new THREE.Scene());
+    const object = panel.getObject3D() as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+    const texture = object.material.map as THREE.CanvasTexture;
+    panel.setModel(createModel());
+    const version = texture.version;
+
+    expect(panel.classifyTarget(720, 550)).toBe('control'); // play-pause control rect
+    expect(panel.classifyTarget(340, 128)).toBe('marker'); // enabled 'north' marker
+    expect(panel.classifyTarget(400, 200)).toBe('disabled'); // unsupported marker
+    expect(panel.classifyTarget(500, 400)).toBe('panel'); // empty map area
+    expect(texture.version).toBe(version); // classification never repaints the canvas
+  });
+
   test('omits XR-only controls and their hit targets in desktop debug mode', () => {
     panel = createMapPanel(new THREE.Scene());
     vi.mocked(context.fillText).mockClear();

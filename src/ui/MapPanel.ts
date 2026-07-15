@@ -8,8 +8,10 @@ import type {
   MapPanelAction,
   MapPanelModel,
   PlaybackSnapshot,
+  PointerTargetKind,
 } from '../domain/types';
-import { MapHitTester } from './hitTest';
+import { COLORS } from './colors';
+import { MapHitTester, controlActionAt } from './hitTest';
 import {
   FOOTER_RECT,
   MAP_CANVAS_HEIGHT,
@@ -30,25 +32,6 @@ const PANEL_DISTANCE_M = 1.25;
 const PANEL_VERTICAL_OFFSET_M = -0.08;
 const MINIMUM_HORIZONTAL_FORWARD = 0.25;
 const LOCAL_POSITIVE_Z = new THREE.Vector3(0, 0, 1);
-
-const COLORS = Object.freeze({
-  background: 'rgba(11, 27, 29, 0.88)',
-  panel: 'rgba(16, 39, 42, 0.92)',
-  panelAlt: 'rgba(13, 32, 34, 0.9)',
-  line: '#47726b',
-  muted: '#c4d6d0',
-  text: '#e9f6f1',
-  accent: '#8edcc5',
-  selected: '#fff4b8',
-  warning: '#ffd28a',
-  error: '#ff9e9e',
-  disabled: '#8f9d99',
-  // Dark, near-opaque backings that make ink legible directly over live passthrough
-  // without a full panel plate. `halo` outlines strokes/text; `scrim` sits behind a text
-  // run or control sized to its content.
-  halo: 'rgba(4, 12, 13, 0.78)',
-  scrim: 'rgba(6, 16, 18, 0.64)',
-});
 
 // Passthrough type scale: no run below 18px logical (0.77deg em at 1.25m). Primary
 // title/status 24-26px, control labels/body 20px, secondary/floor 18px.
@@ -234,6 +217,22 @@ class CanvasMapPanel implements MapPanel {
       this.draw();
     }
     return hit?.action ?? null;
+  }
+
+  public classifyTarget(canvasX: number, canvasY: number): PointerTargetKind {
+    this.assertLive();
+    const model = this.model;
+    if (model === null) {
+      return 'none';
+    }
+    if (controlActionAt(model, canvasX, canvasY) !== null) {
+      return 'control';
+    }
+    const marker = this.hitTester.hover(canvasX, canvasY);
+    if (marker !== null) {
+      return marker.enabled ? 'marker' : 'disabled';
+    }
+    return 'panel';
   }
 
   public getObject3D(): THREE.Object3D {

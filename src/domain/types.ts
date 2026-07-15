@@ -323,6 +323,9 @@ export interface RuntimeResourceCounts extends AudioResourceCounts {
   mapPlanes: 0 | 1;
   controllerGroups: 0 | 2;
   controllerRayVisuals: 0 | 2;
+  pointerReticles: 0 | 1;
+  reticleGeometries: 0 | 1;
+  reticleMaterials: 0 | 1;
   activeXRSessions: 0 | 1;
   registeredXRSessionHandlers: 0 | 4;
   registeredReferenceSpaceHandlers: 0 | 1;
@@ -377,6 +380,8 @@ export type MapMarkerState =
   | 'disabled';
 
 export type MarkerDisabledReason = 'unsupported-audio';
+
+export type PointerTargetKind = 'none' | 'panel' | 'marker' | 'control' | 'disabled';
 
 export interface MapMarkerModel {
   recordingId: string;
@@ -468,6 +473,7 @@ export interface XRSessionController extends AsyncDisposable {
   getScene(): THREE.Scene;
   getAppCamera(): THREE.PerspectiveCamera;
   setInteractionSurface(surface: XRInteractionSurface | null): void;
+  setPointerTarget(kind: PointerTargetKind): void;
   subscribe(listener: (event: XRRuntimeEvent) => void): Unsubscribe;
   resourceCounts(): Pick<
     RuntimeResourceCounts,
@@ -477,6 +483,9 @@ export interface XRSessionController extends AsyncDisposable {
     | 'appCameras'
     | 'controllerGroups'
     | 'controllerRayVisuals'
+    | 'pointerReticles'
+    | 'reticleGeometries'
+    | 'reticleMaterials'
     | 'activeXRSessions'
     | 'registeredXRSessionHandlers'
     | 'registeredReferenceSpaceHandlers'
@@ -492,6 +501,7 @@ export interface MapPanel extends Disposable {
   updateHover(canvasX: number, canvasY: number, nowMs: number): void;
   clearHover(): void;
   hitTest(canvasX: number, canvasY: number, nowMs: number): MapPanelAction | null;
+  classifyTarget(canvasX: number, canvasY: number): PointerTargetKind;
   getObject3D(): THREE.Object3D;
 }
 

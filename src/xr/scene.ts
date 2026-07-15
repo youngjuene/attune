@@ -6,6 +6,8 @@ export interface XRSceneResources {
   readonly appCamera: THREE.PerspectiveCamera;
   readonly controllerGroups: readonly [THREE.XRTargetRaySpace, THREE.XRTargetRaySpace];
   readonly controllerRays: readonly [THREE.Line, THREE.Line];
+  readonly rayMaterial: THREE.LineBasicMaterial;
+  readonly reticle: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   resize(): void;
   poseSurfaceFromCamera(surface: THREE.Object3D, camera: THREE.Camera): boolean;
   dispose(): void;
@@ -61,6 +63,24 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
     secondGroup.add(secondRay);
     scene.add(firstGroup, secondGroup);
 
+    // One surface cursor, matching the single-preferred-pointer model. A unit-radius ring
+    // scaled per-frame by hit distance keeps a constant angular size; depthTest off keeps it
+    // visible over the panel (renderOrder 11, above the panel's 10).
+    const reticleGeometry = new THREE.RingGeometry(0.55, 1, 24);
+    const reticleMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+    const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+    reticle.name = 'attune-pointer-reticle';
+    reticle.frustumCulled = false;
+    reticle.renderOrder = 11;
+    reticle.visible = false;
+    scene.add(reticle);
+
     let lastValidPanelForward = DEFAULT_FORWARD.clone();
     let disposed = false;
 
@@ -110,11 +130,14 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
       disposed = true;
       firstRay.visible = false;
       secondRay.visible = false;
+      reticle.visible = false;
       firstGroup.remove(firstRay);
       secondGroup.remove(secondRay);
-      scene.remove(firstGroup, secondGroup);
+      scene.remove(firstGroup, secondGroup, reticle);
       rayGeometry.dispose();
       rayMaterial.dispose();
+      reticleGeometry.dispose();
+      reticleMaterial.dispose();
       renderer.setAnimationLoop(null);
       renderer.dispose();
       renderer.domElement.remove();
@@ -127,6 +150,8 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
       appCamera,
       controllerGroups: [firstGroup, secondGroup],
       controllerRays: [firstRay, secondRay],
+      rayMaterial,
+      reticle,
       resize,
       poseSurfaceFromCamera,
       dispose,

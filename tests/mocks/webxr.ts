@@ -157,6 +157,12 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
   secondGroup.add(secondRay);
   scene.add(firstGroup, secondGroup);
 
+  const reticleGeometry = new THREE.RingGeometry(0.55, 1, 24);
+  const reticleMaterial = new THREE.MeshBasicMaterial();
+  const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+  reticle.visible = false;
+  scene.add(reticle);
+
   const view = new THREE.PerspectiveCamera();
   const viewerCamera = new THREE.ArrayCamera([view]);
   viewerCamera.position.set(0, 1.6, 0);
@@ -225,6 +231,8 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
     appCamera,
     controllerGroups: [firstGroup, secondGroup],
     controllerRays: [firstRay, secondRay],
+    rayMaterial: material,
+    reticle,
     resize: (): void => {
       ++state.resizeCallCount;
     },
@@ -243,6 +251,9 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
         return;
       }
       state.disposed = true;
+      scene.remove(reticle);
+      reticleGeometry.dispose();
+      reticleMaterial.dispose();
       renderer.setAnimationLoop(null);
       renderer.dispose();
       canvas.remove();

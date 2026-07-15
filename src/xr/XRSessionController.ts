@@ -4,6 +4,7 @@ import { AppError } from '../app/errors';
 import type {
   CreateXRSessionController,
   ImmersiveARSessionInit,
+  PointerTargetKind,
   RuntimeResourceCounts,
   Unsubscribe,
   XRInteractionSurface,
@@ -12,11 +13,33 @@ import type {
   XRSessionControllerOptions,
   XRSessionHandle,
 } from '../domain/types';
+import { COLORS } from '../ui/colors';
 import { createXRSceneResources, type XRSceneResources } from './scene';
 
 // Guards getNativeFramebufferScaleFactor against pathological values while still lifting
 // the framebuffer above the user-agent default toward the display's native resolution.
 const XR_MAX_FRAMEBUFFER_SCALE = 1.5;
+
+// Reticle outer radius in metres per metre of hit distance, giving a constant angular size
+// (~0.37deg). A small offset toward the viewer avoids z-fighting with the panel.
+const RETICLE_ANGULAR_SIZE = 0.0065;
+const RETICLE_SURFACE_OFFSET_M = 0.004;
+const PANEL_LOCAL_NORMAL = new THREE.Vector3(0, 0, 1);
+const RAY_COLOR_ACTIVE = 0xe9f6f1;
+const RAY_COLOR_IDLE = 0x4a5c58;
+
+function reticleColor(kind: PointerTargetKind): THREE.ColorRepresentation {
+  switch (kind) {
+    case 'marker':
+    case 'control':
+      return COLORS.accent;
+    case 'disabled':
+      return COLORS.disabled;
+    case 'panel':
+    case 'none':
+      return COLORS.muted;
+  }
+}
 
 type XRCounts = Pick<
   RuntimeResourceCounts,
@@ -26,6 +49,9 @@ type XRCounts = Pick<
   | 'appCameras'
   | 'controllerGroups'
   | 'controllerRayVisuals'
+  | 'pointerReticles'
+  | 'reticleGeometries'
+  | 'reticleMaterials'
   | 'activeXRSessions'
   | 'registeredXRSessionHandlers'
   | 'registeredReferenceSpaceHandlers'
@@ -129,6 +155,9 @@ class SessionController implements XRSessionController {
   private context: SessionContext | null = null;
   private pendingStart: Promise<XRSessionHandle> | null = null;
   private interactionSurface: XRInteractionSurface | null = null;
+  private pointerTargetKind: PointerTargetKind = 'none';
+  private readonly reticleQuaternion = new THREE.Quaternion();
+  private readonly reticleNormal = new THREE.Vector3();
   private animationLoopInstalled = false;
   private lifecycle: 'live' | 'disposing' | 'disposed' = 'live';
   private disposePromise: Promise<void> | null = null;
@@ -224,6 +253,13 @@ class SessionController implements XRSessionController {
     }
   }
 
+  public setPointerTarget(kind: PointerTargetKind): void {
+    if (this.lifecycle !== 'live') {
+      return;
+    }
+    this.pointerTargetKind = kind;
+  }
+
   public subscribe(listener: (event: XRRuntimeEvent) => void): Unsubscribe {
     this.assertLive();
     this.subscribers.add(listener);
@@ -247,6 +283,9 @@ class SessionController implements XRSessionController {
       appCameras: resourcesLive ? 1 : 0,
       controllerGroups: resourcesLive ? 2 : 0,
       controllerRayVisuals: resourcesLive ? 2 : 0,
+      pointerReticles: resourcesLive ? 1 : 0,
+      reticleGeometries: resourcesLive ? 1 : 0,
+      reticleMaterials: resourcesLive ? 1 : 0,
       activeXRSessions: context?.handle !== null && context?.handle !== undefined ? 1 : 0,
       registeredXRSessionHandlers: context?.sessionHandlersRegistered === true ? 4 : 0,
       registeredReferenceSpaceHandlers: context?.referenceHandlerRegistered === true ? 1 : 0,
@@ -568,7 +607,15 @@ class SessionController implements XRSessionController {
   };
 
   private readPointer(context: SessionContext): { x: number; y: number } | null {
-    if (context.preferredGroup === null || this.interactionSurface === null) {
+    // A hidden panel (interaction surface object invisible) yields no hit, which quiets
+    // hover, selection, and the reticle without nulling the surface — so it is never
+    // re-posed. See ADR 0002.
+    if (
+      context.preferredGroup === null ||
+      this.interactionSurface === null ||
+      !this.interactionSurface.object.visible
+    ) {
+      this.updatePointerVisuals(context, null);
       return null;
     }
     context.preferredGroup.updateWorldMatrix(true, false);
@@ -576,13 +623,50 @@ class SessionController implements XRSessionController {
     this.raycaster.setFromXRController(context.preferredGroup);
     const hit = this.raycaster.intersectObject(this.interactionSurface.object, false)[0];
     const uv = hit?.uv;
-    if (uv === undefined || !Number.isFinite(uv.x) || !Number.isFinite(uv.y)) {
+    if (hit === undefined || uv === undefined || !Number.isFinite(uv.x) || !Number.isFinite(uv.y)) {
+      this.updatePointerVisuals(context, null);
       return null;
     }
+    this.updatePointerVisuals(context, hit);
     return {
       x: uv.x * this.interactionSurface.widthPx,
       y: (1 - uv.y) * this.interactionSurface.heightPx,
     };
+  }
+
+  /** Place/hide the reticle and shorten the ray from the intersection readPointer computed. */
+  private updatePointerVisuals(context: SessionContext, hit: THREE.Intersection | null): void {
+    const reticle = this.sceneResources.reticle;
+    if (hit === null || this.interactionSurface === null) {
+      reticle.visible = false;
+      this.sceneResources.rayMaterial.color.set(RAY_COLOR_IDLE);
+      for (const ray of this.sceneResources.controllerRays) {
+        ray.scale.z = 1;
+      }
+      return;
+    }
+    const surface = this.interactionSurface.object;
+    surface.getWorldQuaternion(this.reticleQuaternion);
+    this.reticleNormal.copy(PANEL_LOCAL_NORMAL).applyQuaternion(this.reticleQuaternion);
+    reticle.position.copy(hit.point).addScaledVector(this.reticleNormal, RETICLE_SURFACE_OFFSET_M);
+    reticle.quaternion.copy(this.reticleQuaternion);
+    reticle.scale.setScalar(RETICLE_ANGULAR_SIZE * hit.distance);
+    reticle.material.color.set(reticleColor(this.pointerTargetKind));
+    reticle.visible = true;
+    reticle.updateMatrixWorld(true);
+    this.sceneResources.rayMaterial.color.set(RAY_COLOR_ACTIVE);
+    const preferredRay = this.preferredRay(context);
+    if (preferredRay !== null) {
+      preferredRay.scale.z = hit.distance;
+    }
+  }
+
+  private preferredRay(context: SessionContext): THREE.Line | null {
+    if (context.preferredGroup === null) {
+      return null;
+    }
+    const index = this.sceneResources.controllerGroups.indexOf(context.preferredGroup);
+    return index >= 0 ? this.sceneResources.controllerRays[index] ?? null : null;
   }
 
   private emitPointerChange(

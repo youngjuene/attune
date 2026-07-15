@@ -14,6 +14,7 @@ import type {
   MapPanelModel,
   PlaybackEligibility,
   PlaybackSnapshot,
+  PointerTargetKind,
   RuntimeResourceCounts,
   SpatialAudioPlayer,
   Unsubscribe,
@@ -87,6 +88,8 @@ class FakeMapPanel implements MapPanel {
     this.hits.push({ x, y, now });
     return this.hitAction;
   }
+  public targetKind: PointerTargetKind = 'panel';
+  public classifyTarget(): PointerTargetKind { return this.targetKind; }
   public getObject3D(): THREE.Object3D { return this.object; }
   public dispose(): void { this.disposed = true; }
 }
@@ -177,16 +180,19 @@ class FakeXrController implements XRSessionController {
   public getScene(): THREE.Scene { return this.scene; }
   public getAppCamera(): THREE.PerspectiveCamera { return this.camera; }
   public setInteractionSurface(surface: XRInteractionSurface | null): void { this.interactionSurface = surface; }
+  public setPointerTarget(): void {}
   public subscribe(listener: (event: XRRuntimeEvent) => void): Unsubscribe {
     this.events.add(listener); return () => this.events.delete(listener);
   }
   public resourceCounts(): Pick<RuntimeResourceCounts,
     'renderers' | 'rendererCanvases' | 'scenes' | 'appCameras' | 'controllerGroups' |
-    'controllerRayVisuals' | 'activeXRSessions' | 'registeredXRSessionHandlers' |
+    'controllerRayVisuals' | 'pointerReticles' | 'reticleGeometries' | 'reticleMaterials' |
+    'activeXRSessions' | 'registeredXRSessionHandlers' |
     'registeredReferenceSpaceHandlers' | 'registeredControllerGroupHandlers' | 'controllerBindings'> {
     return {
       renderers: 1, rendererCanvases: 1, scenes: 1, appCameras: 1, controllerGroups: 2,
-      controllerRayVisuals: 2, activeXRSessions: this.active ? 1 : 0,
+      controllerRayVisuals: 2, pointerReticles: 1, reticleGeometries: 1, reticleMaterials: 1,
+      activeXRSessions: this.active ? 1 : 0,
       registeredXRSessionHandlers: this.active ? 4 : 0,
       registeredReferenceSpaceHandlers: this.active ? 1 : 0,
       registeredControllerGroupHandlers: this.active ? 4 : 0,

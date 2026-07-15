@@ -52,6 +52,9 @@ const ZERO_COUNTS: RuntimeResourceCounts = Object.freeze({
   mapPlanes: 0,
   controllerGroups: 0,
   controllerRayVisuals: 0,
+  pointerReticles: 0,
+  reticleGeometries: 0,
+  reticleMaterials: 0,
   activeXRSessions: 0,
   registeredXRSessionHandlers: 0,
   registeredReferenceSpaceHandlers: 0,
@@ -804,9 +807,13 @@ class AttuneAppController implements AppController {
         break;
       case 'pointerMove':
         this.mapPanel?.updateHover(event.canvasX, event.canvasY, event.nowMs);
+        this.xrController?.setPointerTarget(
+          this.mapPanel?.classifyTarget(event.canvasX, event.canvasY) ?? 'none',
+        );
         break;
       case 'pointerLeave':
         this.mapPanel?.clearHover();
+        this.xrController?.setPointerTarget('none');
         break;
       case 'primarySelect':
         if (this.state.phase === 'calibrating') {
