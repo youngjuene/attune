@@ -21,10 +21,13 @@ function createCanvasContext(): CanvasRenderingContext2D {
     setTransform: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
+    strokeText: vi.fn(),
     fillStyle: '',
     font: '',
     lineWidth: 1,
+    lineJoin: 'miter',
     strokeStyle: '',
+    textAlign: 'left',
   } as unknown as CanvasRenderingContext2D;
 }
 
@@ -52,8 +55,8 @@ function createModel(): MapPanelModel {
     selected: {
       recordingId: 'north',
       title: 'North',
-      latitudeText: '37.567399',
-      longitudeText: '126.978000',
+      latitudeText: '37.5674',
+      longitudeText: '126.9780',
       distanceText: '100 m',
       bearingText: '0° N',
       description: 'North fixture',
@@ -110,7 +113,7 @@ describe('WP-4 canvas map panel', () => {
     panel.setModel(createModel());
     const drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
     expect(drawnText).toContain('Cardinal recordings');
-    expect(drawnText).toContain('37.567399, 126.978000');
+    expect(drawnText).toContain('37.5674, 126.9780');
     expect(drawnText).toContain('100 m');
     expect(object.material.transparent).toBe(true);
   });
@@ -160,11 +163,41 @@ describe('WP-4 canvas map panel', () => {
     expect(drawnText).not.toContain('Exit MR');
     expect(drawnText).not.toContain('Recenter');
     expect(drawnText).not.toContain('Recalibrate');
-    expect(drawnText).not.toContain('Face true north and press trigger to calibrate.');
+    expect(drawnText).not.toContain('Face north, then pull the trigger.');
     expect(drawnText).not.toContain('No tracked controller. Use the Quest system control to exit Mixed Reality.');
     expect(panel.hitTest(950, 550, 1)).toBeNull();
     expect(panel.hitTest(900, 620, 2)).toBeNull();
     expect(panel.hitTest(800, 700, 3)).toBeNull();
+  });
+
+  test('makes the calibration instruction dominant and hides dead controls while calibrating', () => {
+    panel = createMapPanel(new THREE.Scene());
+    vi.mocked(context.fillText).mockClear();
+    panel.setModel({ ...createModel(), calibrationReady: false });
+
+    const drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
+    expect(drawnText).toContain('Face north, then pull the trigger.');
+    expect(drawnText).toContain('Exit MR');
+    expect(drawnText).not.toContain('Stop');
+    expect(drawnText).not.toContain('Recenter');
+  });
+
+  test('haloes ring strokes with a second dark pass for passthrough legibility', () => {
+    panel = createMapPanel(new THREE.Scene());
+    const base = { ...createModel(), markers: [] };
+    const rings = createModel().distanceRings;
+    const strokeMock = vi.mocked(context.stroke);
+
+    strokeMock.mockClear();
+    panel.setModel({ ...base, distanceRings: rings.slice(0, 4) });
+    const four = strokeMock.mock.calls.length;
+    strokeMock.mockClear();
+    panel.setModel({ ...base, distanceRings: rings.slice(0, 2) });
+    const two = strokeMock.mock.calls.length;
+
+    // Each ring adds exactly two stroke passes (halo + ink); the constant crosshair
+    // strokes cancel out of the difference.
+    expect(four - two).toBe(4);
   });
 
   test('surfaces controller fallback guidance without adding another input resource', () => {

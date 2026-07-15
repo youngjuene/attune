@@ -850,8 +850,8 @@ class AttuneAppController implements AppController {
     const selected = selectedGeo === undefined ? undefined : {
       recordingId: selectedGeo.record.id,
       title: selectedGeo.record.title,
-      latitudeText: selectedGeo.record.location.lat.toFixed(6),
-      longitudeText: selectedGeo.record.location.lon.toFixed(6),
+      latitudeText: selectedGeo.record.location.lat.toFixed(4),
+      longitudeText: selectedGeo.record.location.lon.toFixed(4),
       distanceText: formatDistanceM(selectedGeo.geo.distanceM),
       bearingText: formatBearing(selectedGeo.geo.bearingDeg, selectedGeo.geo.cardinal),
       ...(selectedGeo.record.description === undefined ? {} : { description: selectedGeo.record.description }),
