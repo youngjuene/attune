@@ -55,6 +55,9 @@ describe('XRSessionController session lifecycle', () => {
     expect(handle.referenceSpace).toBe(session.localFloorSpace);
     expect(sceneStates[0]!.renderer.setSessionCalls).toEqual([session]);
     expect(sceneStates[0]!.renderer.setReferenceSpaceCalls).toEqual([session.localFloorSpace]);
+    // Framebuffer scale must be set before the session (the layer reads it at setSession
+    // time). Without XRWebGLLayer in jsdom, the guarded fallback is 1.
+    expect(sceneStates[0]!.renderer.framebufferScaleCalls).toEqual([{ scale: 1, beforeSession: true }]);
     expect(controller.resourceCounts()).toMatchObject({
       renderers: 1,
       rendererCanvases: 1,
@@ -73,6 +76,31 @@ describe('XRSessionController session lifecycle', () => {
     );
 
     await controller.dispose();
+  });
+
+  it('clamps the native framebuffer scale and still sets it before setSession', async () => {
+    const globalWithLayer = globalThis as unknown as {
+      XRWebGLLayer?: { getNativeFramebufferScaleFactor(session: XRSession): number };
+    };
+    const original = globalWithLayer.XRWebGLLayer;
+    globalWithLayer.XRWebGLLayer = { getNativeFramebufferScaleFactor: () => 2 };
+    try {
+      const system = new MockXRSystem();
+      const session = new MockXRSession();
+      system.enqueue(session);
+      const controller = controllerFor(system);
+      await controller.start().result;
+      expect(sceneStates[0]!.renderer.framebufferScaleCalls).toEqual([
+        { scale: 1.5, beforeSession: true },
+      ]);
+      await controller.dispose();
+    } finally {
+      if (original === undefined) {
+        delete globalWithLayer.XRWebGLLayer;
+      } else {
+        globalWithLayer.XRWebGLLayer = original;
+      }
+    }
   });
 
   it('falls back from local-floor to local and maps complete reference failure', async () => {

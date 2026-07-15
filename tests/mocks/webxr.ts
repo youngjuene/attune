@@ -115,6 +115,7 @@ export class MockXRFrame {
 export interface MockRendererState {
   readonly setSessionCalls: XRSession[];
   readonly setReferenceSpaceCalls: XRReferenceSpace[];
+  readonly framebufferScaleCalls: Array<{ scale: number; beforeSession: boolean }>;
   readonly getCameraArguments: unknown[][];
   readonly renderCalls: Array<{ scene: THREE.Scene; camera: THREE.Camera }>;
   readonly animationLoopCalls: Array<XRFrameRequestCallback | null>;
@@ -166,6 +167,7 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
   const rendererState: MockRendererState = {
     setSessionCalls: [],
     setReferenceSpaceCalls: [],
+    framebufferScaleCalls: [],
     getCameraArguments: [],
     renderCalls: [],
     animationLoopCalls: [],
@@ -185,6 +187,12 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
     },
     setReferenceSpace: (space: XRReferenceSpace): void => {
       rendererState.setReferenceSpaceCalls.push(space);
+    },
+    setFramebufferScaleFactor: (scale: number): void => {
+      rendererState.framebufferScaleCalls.push({
+        scale,
+        beforeSession: rendererState.setSessionCalls.length === 0,
+      });
     },
     getCamera: (...args: unknown[]): THREE.ArrayCamera => {
       rendererState.getCameraArguments.push(args);

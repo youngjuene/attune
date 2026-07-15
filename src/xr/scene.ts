@@ -14,6 +14,12 @@ export interface XRSceneResources {
 const DEFAULT_FORWARD = new THREE.Vector3(0, 0, -1);
 const LOCAL_POSITIVE_Z = new THREE.Vector3(0, 0, 1);
 
+// three.js r185 WebXRManager defaults foveation to 1.0 (maximum), which renders the
+// panel's off-centre detail column and controls at reduced resolution. 0 disables
+// foveation (full resolution across the frame). Raise toward 0.2-0.3 only if on-device
+// frame timing regresses; never restore the 1.0 default.
+const XR_FOVEATION = 0;
+
 function finiteVector(vector: THREE.Vector3): boolean {
   return Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
 }
@@ -33,6 +39,7 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
 
     renderer.setClearAlpha(0);
     renderer.xr.enabled = true;
+    renderer.xr.setFoveation(XR_FOVEATION);
     renderer.xr.setReferenceSpaceType('local');
     renderer.setSize(width, height);
     root.append(renderer.domElement);

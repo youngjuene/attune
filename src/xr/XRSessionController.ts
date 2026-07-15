@@ -14,6 +14,10 @@ import type {
 } from '../domain/types';
 import { createXRSceneResources, type XRSceneResources } from './scene';
 
+// Guards getNativeFramebufferScaleFactor against pathological values while still lifting
+// the framebuffer above the user-agent default toward the display's native resolution.
+const XR_MAX_FRAMEBUFFER_SCALE = 1.5;
+
 type XRCounts = Pick<
   RuntimeResourceCounts,
   | 'renderers'
@@ -314,6 +318,19 @@ class SessionController implements XRSessionController {
     }
 
     try {
+      // setFramebufferScaleFactor is only read when the layer is constructed at
+      // setSession time, so it must be set first. Feature-detect the static helper: it
+      // is absent in the test environment and non-Quest browsers, where 1 is a safe
+      // default that still exercises the ordering.
+      const nativeScale =
+        typeof XRWebGLLayer !== 'undefined' &&
+        typeof XRWebGLLayer.getNativeFramebufferScaleFactor === 'function'
+          ? XRWebGLLayer.getNativeFramebufferScaleFactor(session)
+          : Number.NaN;
+      const framebufferScale = Number.isFinite(nativeScale) && nativeScale > 0
+        ? Math.min(nativeScale, XR_MAX_FRAMEBUFFER_SCALE)
+        : 1;
+      this.sceneResources.renderer.xr.setFramebufferScaleFactor(framebufferScale);
       await this.sceneResources.renderer.xr.setSession(session);
     } catch (cause) {
       await this.failPartialSession(context);
