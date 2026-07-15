@@ -394,6 +394,7 @@ export interface MapDistanceRingModel {
 
 export interface MapPanelModel {
   collectionTitle: string;
+  xrControlsVisible: boolean;
   markers: readonly MapMarkerModel[];
   distanceRings: readonly MapDistanceRingModel[];
   selected?: {

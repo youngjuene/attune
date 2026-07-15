@@ -5,18 +5,30 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import type { ContentWarning, RejectedRecord } from '../src/domain/types';
+import {
+  isPlainObject,
+  isSyntacticallyValidId,
+  validateManifestDocument,
+  type EnvelopeDiagnostic,
+} from '../src/data/validateManifest';
 
 const CANONICAL_TONE_SHA256 = 'e4df7c1075940a8d01285505c96e080a5adae2c819ae7f16a0e9338e6a228110';
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SYNTHETIC_ORIGIN = 'https://attune.invalid';
 
-interface ValidationIssue {
-  code: string;
-  index?: number;
-  fieldPath?: string;
-  recordingId?: string;
+interface FileDiagnostic {
+  code: 'AUDIO_FILE_INVALID' | 'AUDIO_FIXTURE_HASH_MISMATCH';
+  fieldPath: 'audioUrl';
+  id: string;
+  index: number;
+}
+
+interface EmptySetDiagnostic {
+  code: 'NO_VALID_RECORDINGS';
+  fieldPath: 'recordings';
 }
 
 interface AudioEvidence {
@@ -26,12 +38,16 @@ interface AudioEvidence {
   sizeBytes: number;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function codePointLength(value: string): number {
-  return [...value].length;
+export interface ContentValidationSummary {
+  audioFiles: readonly AudioEvidence[];
+  errors: readonly (EnvelopeDiagnostic | RejectedRecord | FileDiagnostic | EmptySetDiagnostic)[];
+  manifest: string;
+  normalizedManifest?: unknown;
+  recordCount: number;
+  rejectedRecordCount: number;
+  status: 'ok' | 'error';
+  validRecordCount: number;
+  warnings: readonly ContentWarning[];
 }
 
 function normalizedPath(value: string): string {
@@ -39,224 +55,154 @@ function normalizedPath(value: string): string {
 }
 
 function sortObjectKeys(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortObjectKeys);
-  }
-  if (isPlainObject(value)) {
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) {
-      sorted[key] = sortObjectKeys(value[key]);
-    }
-    return sorted;
-  }
-  return value;
+  if (Array.isArray(value)) return value.map(sortObjectKeys);
+  if (!isPlainObject(value)) return value;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) sorted[key] = sortObjectKeys(value[key]);
+  return sorted;
 }
 
-function serializeStable(value: unknown): string {
+export function serializeStable(value: unknown): string {
   return `${JSON.stringify(sortObjectKeys(value), null, 2)}\n`;
 }
 
 function parseArguments(argumentsList: readonly string[]): string {
-  let manifestPath: string | undefined;
-  for (let index = 0; index < argumentsList.length; index += 1) {
-    const argument = argumentsList[index];
-    if (argument !== '--manifest' || manifestPath !== undefined) {
-      throw new Error('Usage: validate-content.ts --manifest <manifest-path>');
-    }
-    manifestPath = argumentsList[index + 1];
-    index += 1;
-  }
-  if (manifestPath === undefined) {
+  if (argumentsList.length !== 2 || argumentsList[0] !== '--manifest' || argumentsList[1] === undefined) {
     throw new Error('Usage: validate-content.ts --manifest <manifest-path>');
   }
-  return manifestPath;
+  return argumentsList[1];
 }
 
-function resolveLocalAudioPath(audioUrl: string, manifestPath: string, publicRoot: string): {
-  absolutePath?: string;
-  external: boolean;
-} {
-  const relativeManifestPath = normalizedPath(relative(publicRoot, manifestPath));
-  if (relativeManifestPath.startsWith('../') || isAbsolute(relativeManifestPath)) {
-    throw new Error('Manifest must be inside the public directory.');
-  }
-
-  const baseUrl = new URL(`/${relativeManifestPath}`, SYNTHETIC_ORIGIN);
-  const resolvedUrl = new URL(audioUrl, baseUrl);
-  if (resolvedUrl.protocol !== 'https:') {
-    throw new Error('Unsupported audio URL scheme.');
-  }
-  if (resolvedUrl.origin !== SYNTHETIC_ORIGIN) {
-    return { external: true };
-  }
-
-  const pathSegments = resolvedUrl.pathname
-    .split('/')
-    .filter((segment) => segment.length > 0)
-    .map((segment) => decodeURIComponent(segment));
-  if (
-    pathSegments.some((segment) =>
-      segment === '.'
-      || segment === '..'
-      || segment.includes('\0')
-      || segment.includes('/')
-      || segment.includes('\\'))
-  ) {
-    throw new Error('Unsafe audio path.');
-  }
-
-  const absolutePath = resolve(publicRoot, ...pathSegments);
-  const relativePath = relative(publicRoot, absolutePath);
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-    throw new Error('Audio path escapes the public directory.');
-  }
-  return { absolutePath, external: false };
+function pathInside(root: string, candidate: string): boolean {
+  const relativePath = relative(root, candidate);
+  return relativePath === '' || (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath));
 }
 
-function validateEnvelope(value: unknown, issues: ValidationIssue[]): Record<string, unknown> | undefined {
-  if (!isPlainObject(value)) {
-    issues.push({ code: 'MANIFEST_INVALID' });
-    return undefined;
-  }
-  if (value.schemaVersion !== '1.0') {
-    issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'schemaVersion' });
-  }
-  if (!isPlainObject(value.collection)) {
-    issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'collection' });
-  } else {
-    if (typeof value.collection.id !== 'string' || !ID_PATTERN.test(value.collection.id)) {
-      issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'collection.id' });
+function syntheticManifestUrl(manifestPath: string, publicRoot: string): string {
+  if (!pathInside(publicRoot, manifestPath)) throw new Error('Manifest must be inside the public directory.');
+  const relativePath = normalizedPath(relative(publicRoot, manifestPath));
+  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+  return new URL(`/${encodedPath}`, SYNTHETIC_ORIGIN).href;
+}
+
+/** Map a same-origin synthetic public URL back to a contained local path. */
+export function resolvePublicAudioPath(resolvedAudioUrl: string, publicRoot: string): string | undefined {
+  const url = new URL(resolvedAudioUrl);
+  if (url.origin !== SYNTHETIC_ORIGIN) return undefined;
+  const segments = url.pathname.split('/').filter(Boolean).map((segment) => {
+    const decoded = decodeURIComponent(segment);
+    if (decoded === '.' || decoded === '..' || decoded.includes('\0') || decoded.includes('/') || decoded.includes('\\')) {
+      throw new Error('Unsafe audio path.');
     }
-    const title = typeof value.collection.title === 'string' ? value.collection.title.trim() : '';
-    if (title.length === 0 || codePointLength(title) > 120) {
-      issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'collection.title' });
-    }
-  }
-  if (value.map !== undefined && !isPlainObject(value.map)) {
-    issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'map' });
-  }
-  if (!Array.isArray(value.recordings)) {
-    issues.push({ code: 'MANIFEST_INVALID', fieldPath: 'recordings' });
-  }
-  return value;
+    return decoded;
+  });
+  const absolutePath = resolve(publicRoot, ...segments);
+  if (!pathInside(publicRoot, absolutePath)) throw new Error('Audio path escapes the public directory.');
+  return absolutePath;
 }
 
-function validateRecord(
-  value: unknown,
-  index: number,
-  manifestPath: string,
+function inspectAudioFiles(
+  records: NonNullable<ReturnType<typeof validateManifestDocument>['result']>['records'],
   publicRoot: string,
-  issues: ValidationIssue[],
-  warnings: ValidationIssue[],
-  audioFiles: AudioEvidence[],
-): string | undefined {
-  if (!isPlainObject(value)) {
-    issues.push({ code: 'RECORD_NOT_OBJECT', index });
-    return undefined;
-  }
-
-  const id = typeof value.id === 'string' && ID_PATTERN.test(value.id) ? value.id : undefined;
-  if (id === undefined) {
-    issues.push({ code: 'ID_INVALID', fieldPath: 'id', index });
-  }
-  const issueBase = id === undefined ? { index } : { index, recordingId: id };
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  if (title.length === 0 || codePointLength(title) > 120) {
-    issues.push({ ...issueBase, code: 'TITLE_INVALID', fieldPath: 'title' });
-  }
-  const location = value.location;
-  if (
-    !isPlainObject(location)
-    || typeof location.lat !== 'number'
-    || !Number.isFinite(location.lat)
-    || location.lat < -90
-    || location.lat > 90
-    || typeof location.lon !== 'number'
-    || !Number.isFinite(location.lon)
-    || location.lon < -180
-    || location.lon > 180
-  ) {
-    issues.push({ ...issueBase, code: 'COORDINATE_INVALID', fieldPath: 'location' });
-  }
-  if (value.spatialFormat !== 'point-source') {
-    issues.push({ ...issueBase, code: 'SPATIAL_FORMAT_UNSUPPORTED', fieldPath: 'spatialFormat' });
-  }
-
-  const audioUrl = typeof value.audioUrl === 'string' ? value.audioUrl.trim() : '';
-  if (audioUrl.length === 0 || codePointLength(audioUrl) > 2_048) {
-    issues.push({ ...issueBase, code: 'AUDIO_URL_INVALID', fieldPath: 'audioUrl' });
-  } else if (id !== undefined) {
+  sourceIndexById: ReadonlyMap<string, number>,
+): { audioFiles: AudioEvidence[]; errors: FileDiagnostic[] } {
+  const audioFiles: AudioEvidence[] = [];
+  const errors: FileDiagnostic[] = [];
+  records.forEach((record) => {
+    const index = sourceIndexById.get(record.id) ?? 0;
     try {
-      const resolution = resolveLocalAudioPath(audioUrl, manifestPath, publicRoot);
-      if (resolution.external) {
-        warnings.push({ ...issueBase, code: 'EXTERNAL_AUDIO_NOT_FILE_CHECKED', fieldPath: 'audioUrl' });
-      } else if (resolution.absolutePath !== undefined) {
-        const fileStat = statSync(resolution.absolutePath);
-        if (!fileStat.isFile()) {
-          throw new Error('Audio path is not a regular file.');
-        }
-        const bytes = readFileSync(resolution.absolutePath);
-        const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const relativeAudioPath = normalizedPath(relative(publicRoot, resolution.absolutePath));
-        audioFiles.push({ path: relativeAudioPath, recordingId: id, sha256, sizeBytes: bytes.byteLength });
-        if (relativeAudioPath === 'audio/test-tone.wav' && sha256 !== CANONICAL_TONE_SHA256) {
-          issues.push({ ...issueBase, code: 'AUDIO_FIXTURE_HASH_MISMATCH', fieldPath: 'audioUrl' });
-        }
+      const absolutePath = resolvePublicAudioPath(record.resolvedAudioUrl, publicRoot);
+      if (absolutePath === undefined) return;
+      const fileStat = statSync(absolutePath);
+      if (!fileStat.isFile()) throw new Error('Not a regular file.');
+      const bytes = readFileSync(absolutePath);
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      const path = normalizedPath(relative(publicRoot, absolutePath));
+      audioFiles.push({ path, recordingId: record.id, sha256, sizeBytes: bytes.byteLength });
+      if (path === 'audio/test-tone.wav' && sha256 !== CANONICAL_TONE_SHA256) {
+        errors.push({ code: 'AUDIO_FIXTURE_HASH_MISMATCH', fieldPath: 'audioUrl', id: record.id, index });
       }
     } catch {
-      issues.push({ ...issueBase, code: 'AUDIO_FILE_INVALID', fieldPath: 'audioUrl' });
+      errors.push({ code: 'AUDIO_FILE_INVALID', fieldPath: 'audioUrl', id: record.id, index });
     }
-  }
-  return id;
+  });
+  return { audioFiles, errors };
 }
 
-let exitCode = 0;
-try {
-  const suppliedManifestPath = parseArguments(process.argv.slice(2));
-  const manifestPath = resolve(suppliedManifestPath);
-  const publicRoot = resolve('public');
-  const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown;
-  const issues: ValidationIssue[] = [];
-  const warnings: ValidationIssue[] = [];
-  const audioFiles: AudioEvidence[] = [];
-  const envelope = validateEnvelope(parsed, issues);
-  const ids = new Map<string, number>();
-
-  if (envelope !== undefined && Array.isArray(envelope.recordings)) {
-    envelope.recordings.forEach((record, index) => {
-      const id = validateRecord(record, index, manifestPath, publicRoot, issues, warnings, audioFiles);
-      if (id !== undefined) {
-        const ownerIndex = ids.get(id);
-        if (ownerIndex === undefined) {
-          ids.set(id, index);
-        } else {
-          issues.push({ code: 'ID_DUPLICATE', fieldPath: 'id', index, recordingId: id });
-        }
+/** Validate one committed manifest and atomically emit its stable evidence artifact. */
+export function runContentValidation(
+  argumentsList: readonly string[],
+  options: { cwd?: string; publicRoot?: string; outputPath?: string } = {},
+): { exitCode: 0 | 1; summary: ContentValidationSummary; serialized: string } {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const publicRoot = resolve(options.publicRoot ?? resolve(cwd, 'public'));
+  const manifestPath = resolve(cwd, parseArguments(argumentsList));
+  const outputPath = resolve(options.outputPath ?? resolve(cwd, 'artifacts/content-validation.json'));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown;
+  } catch {
+    parsed = undefined;
+  }
+  const validation = validateManifestDocument(parsed, syntheticManifestUrl(manifestPath, publicRoot));
+  const result = validation.result;
+  const sourceIndexById = new Map<string, number>();
+  if (isPlainObject(parsed) && Array.isArray(parsed.recordings)) {
+    parsed.recordings.forEach((record, index) => {
+      if (isPlainObject(record) && isSyntacticallyValidId(record.id) && !sourceIndexById.has(record.id)) {
+        sourceIndexById.set(record.id, index);
       }
     });
   }
-
-  const summary = {
-    audioFiles,
-    errors: issues,
-    manifest: normalizedPath(relative(process.cwd(), manifestPath)),
-    recordCount: envelope !== undefined && Array.isArray(envelope.recordings) ? envelope.recordings.length : 0,
-    status: issues.length === 0 ? 'ok' : 'error',
-    warnings,
-  };
-  const outputPath = resolve('artifacts/content-validation.json');
-  const temporaryPath = `${outputPath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, serializeStable(summary), 'utf8');
-  renameSync(temporaryPath, outputPath);
-
-  if (issues.length > 0) {
-    console.error(`Content validation failed with ${issues.length} error(s).`);
-    exitCode = 1;
-  } else {
-    console.log(`Validated ${summary.recordCount} recording(s); evidence: ${normalizedPath(relative(process.cwd(), outputPath))}`);
+  const fileInspection = result === undefined
+    ? { audioFiles: [], errors: [] }
+    : inspectAudioFiles(result.records, publicRoot, sourceIndexById);
+  const errors: Array<EnvelopeDiagnostic | RejectedRecord | FileDiagnostic | EmptySetDiagnostic> = [
+    ...validation.envelopeErrors,
+    ...(result?.rejected ?? []),
+    ...fileInspection.errors,
+  ];
+  if (result !== undefined && result.records.length === 0) {
+    errors.push({ code: 'NO_VALID_RECORDINGS', fieldPath: 'recordings' });
   }
-} catch (cause) {
-  console.error(cause instanceof Error ? cause.message : 'Content validation failed.');
-  exitCode = 1;
+  const summary: ContentValidationSummary = {
+    audioFiles: fileInspection.audioFiles,
+    errors,
+    manifest: normalizedPath(relative(cwd, manifestPath)),
+    ...(result === undefined ? {} : { normalizedManifest: result.manifest }),
+    recordCount: validation.sourceRecordCount,
+    rejectedRecordCount: result?.rejected.length ?? 0,
+    status: errors.length === 0 ? 'ok' : 'error',
+    validRecordCount: result?.records.length ?? 0,
+    warnings: result?.warnings ?? [],
+  };
+  const serialized = serializeStable(summary);
+  const temporaryPath = `${outputPath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, serialized, 'utf8');
+  renameSync(temporaryPath, outputPath);
+  return { exitCode: errors.length === 0 ? 0 : 1, summary, serialized };
 }
-process.exitCode = exitCode;
+
+function main(): void {
+  try {
+    const outcome = runContentValidation(process.argv.slice(2));
+    const evidencePath = normalizedPath(relative(process.cwd(), resolve('artifacts/content-validation.json')));
+    if (outcome.exitCode === 0) {
+      console.log(`Validated ${outcome.summary.validRecordCount} recording(s); evidence: ${evidencePath}`);
+    } else {
+      console.error(`Content validation failed with ${outcome.summary.errors.length} error(s); evidence: ${evidencePath}`);
+      for (const issue of outcome.summary.errors) {
+        const location = 'index' in issue ? ` record ${issue.index}` : '';
+        const field = issue.fieldPath === undefined ? '' : ` at ${issue.fieldPath}`;
+        console.error(`- ${issue.code}${location}${field}`);
+      }
+    }
+    process.exitCode = outcome.exitCode;
+  } catch (cause) {
+    console.error(cause instanceof Error ? cause.message : 'Content validation failed.');
+    process.exitCode = 1;
+  }
+}
+
+const entryPoint = process.argv[1];
+if (entryPoint !== undefined && import.meta.url === pathToFileURL(entryPoint).href) main();
