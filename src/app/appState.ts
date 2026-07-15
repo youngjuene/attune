@@ -36,6 +36,7 @@ export function createInitialState(config: Readonly<AppConfig>): AppState {
     browserGeolocationAvailable: false,
     sessionActive: false,
     controllerAvailable: false,
+    panelVisible: true,
     playback: { state: 'empty', currentTimeSec: 0 },
     masterGain: 0.7,
     audioGestureRequired: false,
@@ -277,6 +278,12 @@ export function reduceAppState(
         : state;
     case 'RECENTER_PANEL':
       return state;
+    case 'TOGGLE_PANEL':
+      // Grip toggles panel visibility only once calibrated and in a live session; hiding
+      // during calibration would strand the user with no instruction and no way to proceed.
+      return !state.debugMode && state.phase === 'ready' && state.sessionActive
+        ? { ...state, panelVisible: !state.panelVisible }
+        : state;
     case 'RECALIBRATE':
       return !state.debugMode && state.phase === 'ready' && state.sessionActive
         ? {

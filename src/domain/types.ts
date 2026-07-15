@@ -172,6 +172,7 @@ export interface AppState {
   location?: InitializedLocation;
   sessionActive: boolean;
   controllerAvailable: boolean;
+  panelVisible: boolean;
   calibration?: GeoFrame;
   selectedRecordingId?: string;
   playback: PlaybackSnapshot;
@@ -225,6 +226,7 @@ export type AppAction =
     }
   | { type: 'RECENTER_PANEL' }
   | { type: 'RECALIBRATE' }
+  | { type: 'TOGGLE_PANEL' }
   | { type: 'EXIT_XR' }
   | { type: 'XR_ENDED'; sessionGeneration: number }
   | { type: 'PLAYBACK_SNAPSHOT'; generation: number; snapshot: PlaybackSnapshot }
@@ -323,8 +325,11 @@ export interface RuntimeResourceCounts extends AudioResourceCounts {
   mapPlanes: 0 | 1;
   controllerGroups: 0 | 2;
   controllerRayVisuals: 0 | 2;
+  pointerReticles: 0 | 1;
+  reticleGeometries: 0 | 1;
+  reticleMaterials: 0 | 1;
   activeXRSessions: 0 | 1;
-  registeredXRSessionHandlers: 0 | 4;
+  registeredXRSessionHandlers: 0 | 5;
   registeredReferenceSpaceHandlers: 0 | 1;
   registeredControllerGroupHandlers: 0 | 4;
   controllerBindings: 0 | 1;
@@ -365,7 +370,8 @@ export type XRRuntimeEvent =
       nowMs: number;
       canvasX?: number;
       canvasY?: number;
-    };
+    }
+  | { sessionGeneration: number; type: 'primarySqueeze'; nowMs: number };
 
 export type MapMarkerState =
   | 'default'
@@ -377,6 +383,8 @@ export type MapMarkerState =
   | 'disabled';
 
 export type MarkerDisabledReason = 'unsupported-audio';
+
+export type PointerTargetKind = 'none' | 'panel' | 'marker' | 'control' | 'disabled';
 
 export interface MapMarkerModel {
   recordingId: string;
@@ -395,6 +403,7 @@ export interface MapDistanceRingModel {
 export interface MapPanelModel {
   collectionTitle: string;
   xrControlsVisible: boolean;
+  panelVisible: boolean;
   markers: readonly MapMarkerModel[];
   distanceRings: readonly MapDistanceRingModel[];
   selected?: {
@@ -468,6 +477,7 @@ export interface XRSessionController extends AsyncDisposable {
   getScene(): THREE.Scene;
   getAppCamera(): THREE.PerspectiveCamera;
   setInteractionSurface(surface: XRInteractionSurface | null): void;
+  setPointerTarget(kind: PointerTargetKind): void;
   subscribe(listener: (event: XRRuntimeEvent) => void): Unsubscribe;
   resourceCounts(): Pick<
     RuntimeResourceCounts,
@@ -477,6 +487,9 @@ export interface XRSessionController extends AsyncDisposable {
     | 'appCameras'
     | 'controllerGroups'
     | 'controllerRayVisuals'
+    | 'pointerReticles'
+    | 'reticleGeometries'
+    | 'reticleMaterials'
     | 'activeXRSessions'
     | 'registeredXRSessionHandlers'
     | 'registeredReferenceSpaceHandlers'
@@ -492,6 +505,7 @@ export interface MapPanel extends Disposable {
   updateHover(canvasX: number, canvasY: number, nowMs: number): void;
   clearHover(): void;
   hitTest(canvasX: number, canvasY: number, nowMs: number): MapPanelAction | null;
+  classifyTarget(canvasX: number, canvasY: number): PointerTargetKind;
   getObject3D(): THREE.Object3D;
 }
 

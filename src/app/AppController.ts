@@ -52,6 +52,9 @@ const ZERO_COUNTS: RuntimeResourceCounts = Object.freeze({
   mapPlanes: 0,
   controllerGroups: 0,
   controllerRayVisuals: 0,
+  pointerReticles: 0,
+  reticleGeometries: 0,
+  reticleMaterials: 0,
   activeXRSessions: 0,
   registeredXRSessionHandlers: 0,
   registeredReferenceSpaceHandlers: 0,
@@ -594,6 +597,7 @@ class AttuneAppController implements AppController {
       case 'INPUT_AVAILABILITY_CHANGED':
       case 'AUDIO_GESTURE_REQUIRED':
       case 'PLAYBACK_SNAPSHOT':
+      case 'TOGGLE_PANEL':
       case 'CLEAR_RECOVERABLE_ERROR':
         break;
     }
@@ -804,9 +808,13 @@ class AttuneAppController implements AppController {
         break;
       case 'pointerMove':
         this.mapPanel?.updateHover(event.canvasX, event.canvasY, event.nowMs);
+        this.xrController?.setPointerTarget(
+          this.mapPanel?.classifyTarget(event.canvasX, event.canvasY) ?? 'none',
+        );
         break;
       case 'pointerLeave':
         this.mapPanel?.clearHover();
+        this.xrController?.setPointerTarget('none');
         break;
       case 'primarySelect':
         if (this.state.phase === 'calibrating') {
@@ -818,6 +826,9 @@ class AttuneAppController implements AppController {
           const hit = this.mapPanel?.hitTest(event.canvasX, event.canvasY, event.nowMs);
           if (hit !== null && hit !== undefined) this.dispatch(hit);
         }
+        break;
+      case 'primarySqueeze':
+        if (this.state.phase === 'ready') this.dispatch({ type: 'TOGGLE_PANEL' });
         break;
     }
   }
@@ -850,8 +861,8 @@ class AttuneAppController implements AppController {
     const selected = selectedGeo === undefined ? undefined : {
       recordingId: selectedGeo.record.id,
       title: selectedGeo.record.title,
-      latitudeText: selectedGeo.record.location.lat.toFixed(6),
-      longitudeText: selectedGeo.record.location.lon.toFixed(6),
+      latitudeText: selectedGeo.record.location.lat.toFixed(4),
+      longitudeText: selectedGeo.record.location.lon.toFixed(4),
       distanceText: formatDistanceM(selectedGeo.geo.distanceM),
       bearingText: formatBearing(selectedGeo.geo.bearingDeg, selectedGeo.geo.cardinal),
       ...(selectedGeo.record.description === undefined ? {} : { description: selectedGeo.record.description }),
@@ -870,6 +881,7 @@ class AttuneAppController implements AppController {
     const model: MapPanelModel = {
       collectionTitle: this.state.manifest?.collection.title ?? 'attune',
       xrControlsVisible: !this.config.debugMode,
+      panelVisible: this.state.panelVisible,
       markers: projection.markers,
       distanceRings: projection.distanceRings,
       ...(selected === undefined ? {} : { selected }),

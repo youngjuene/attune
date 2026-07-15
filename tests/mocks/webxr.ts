@@ -69,6 +69,12 @@ export class MockXRSession extends EventTarget {
     Object.defineProperty(event, 'inputSource', { value: inputSource });
     this.dispatchEvent(event);
   }
+
+  public emitSqueeze(inputSource: XRInputSource): void {
+    const event = new Event('squeeze');
+    Object.defineProperty(event, 'inputSource', { value: inputSource });
+    this.dispatchEvent(event);
+  }
 }
 
 export class MockXRSystem {
@@ -115,6 +121,7 @@ export class MockXRFrame {
 export interface MockRendererState {
   readonly setSessionCalls: XRSession[];
   readonly setReferenceSpaceCalls: XRReferenceSpace[];
+  readonly framebufferScaleCalls: Array<{ scale: number; beforeSession: boolean }>;
   readonly getCameraArguments: unknown[][];
   readonly renderCalls: Array<{ scene: THREE.Scene; camera: THREE.Camera }>;
   readonly animationLoopCalls: Array<XRFrameRequestCallback | null>;
@@ -156,6 +163,12 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
   secondGroup.add(secondRay);
   scene.add(firstGroup, secondGroup);
 
+  const reticleGeometry = new THREE.RingGeometry(0.55, 1, 24);
+  const reticleMaterial = new THREE.MeshBasicMaterial();
+  const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+  reticle.visible = false;
+  scene.add(reticle);
+
   const view = new THREE.PerspectiveCamera();
   const viewerCamera = new THREE.ArrayCamera([view]);
   viewerCamera.position.set(0, 1.6, 0);
@@ -166,6 +179,7 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
   const rendererState: MockRendererState = {
     setSessionCalls: [],
     setReferenceSpaceCalls: [],
+    framebufferScaleCalls: [],
     getCameraArguments: [],
     renderCalls: [],
     animationLoopCalls: [],
@@ -185,6 +199,12 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
     },
     setReferenceSpace: (space: XRReferenceSpace): void => {
       rendererState.setReferenceSpaceCalls.push(space);
+    },
+    setFramebufferScaleFactor: (scale: number): void => {
+      rendererState.framebufferScaleCalls.push({
+        scale,
+        beforeSession: rendererState.setSessionCalls.length === 0,
+      });
     },
     getCamera: (...args: unknown[]): THREE.ArrayCamera => {
       rendererState.getCameraArguments.push(args);
@@ -217,6 +237,8 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
     appCamera,
     controllerGroups: [firstGroup, secondGroup],
     controllerRays: [firstRay, secondRay],
+    rayMaterial: material,
+    reticle,
     resize: (): void => {
       ++state.resizeCallCount;
     },
@@ -235,6 +257,9 @@ export function createMockSceneState(root: HTMLElement): MockSceneState {
         return;
       }
       state.disposed = true;
+      scene.remove(reticle);
+      reticleGeometry.dispose();
+      reticleMaterial.dispose();
       renderer.setAnimationLoop(null);
       renderer.dispose();
       canvas.remove();

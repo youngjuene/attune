@@ -9,7 +9,10 @@ import {
 
 const DENSE_INDEX_THRESHOLD = 500;
 const OVERLAP_CYCLE_WINDOW_MS = 1_500;
-const OVERLAP_CYCLE_POINT_TOLERANCE_PX = 8;
+// 8px was 0.34deg at 1.25m — below hand tremor and the trigger-pull deflection, so cycling
+// silently reset to index 0. The identical-candidate-set check (sameIds) is the real guard;
+// this box only rejects gross jumps. ~26px is ~1.1deg.
+const OVERLAP_CYCLE_POINT_TOLERANCE_PX = 26;
 
 interface MarkerCandidate {
   marker: MapMarkerModel;

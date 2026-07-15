@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { MapPanel, MapPanelModel } from '../src/domain/types';
 import { createMapPanel } from '../src/ui/MapPanel';
+import { MAP_CANVAS_HEIGHT, MAP_CANVAS_SCALE, MAP_CANVAS_WIDTH } from '../src/ui/mapLayout';
 
 function createCanvasContext(): CanvasRenderingContext2D {
   return {
@@ -17,12 +18,16 @@ function createCanvasContext(): CanvasRenderingContext2D {
     moveTo: vi.fn(),
     restore: vi.fn(),
     save: vi.fn(),
+    setTransform: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
+    strokeText: vi.fn(),
     fillStyle: '',
     font: '',
     lineWidth: 1,
+    lineJoin: 'miter',
     strokeStyle: '',
+    textAlign: 'left',
   } as unknown as CanvasRenderingContext2D;
 }
 
@@ -30,6 +35,7 @@ function createModel(): MapPanelModel {
   return {
     collectionTitle: 'Cardinal recordings',
     xrControlsVisible: true,
+    panelVisible: true,
     markers: [
       { recordingId: 'north', xPx: 340, yPx: 128, state: 'selected', enabled: true },
       {
@@ -50,8 +56,8 @@ function createModel(): MapPanelModel {
     selected: {
       recordingId: 'north',
       title: 'North',
-      latitudeText: '37.567399',
-      longitudeText: '126.978000',
+      latitudeText: '37.5674',
+      longitudeText: '126.9780',
       distanceText: '100 m',
       bearingText: '0° N',
       description: 'North fixture',
@@ -93,8 +99,10 @@ describe('WP-4 canvas map panel', () => {
     const texture = object.material.map as THREE.CanvasTexture;
 
     expect(panel.getCanvas()).toBe(canvas);
-    expect(canvas.width).toBe(1024);
-    expect(canvas.height).toBe(768);
+    // The backing bitmap is supersampled; the logical drawing space (1024x768) is
+    // unchanged. MAP_CANVAS_SCALE = 1 would reproduce the original 1024x768 backing.
+    expect(canvas.width).toBe(MAP_CANVAS_WIDTH * MAP_CANVAS_SCALE);
+    expect(canvas.height).toBe(MAP_CANVAS_HEIGHT * MAP_CANVAS_SCALE);
     expect(scene.children).toEqual([object]);
     expect(object.geometry.parameters).toMatchObject({ width: 0.96, height: 0.72 });
     expect(texture.image).toBe(canvas);
@@ -106,7 +114,7 @@ describe('WP-4 canvas map panel', () => {
     panel.setModel(createModel());
     const drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
     expect(drawnText).toContain('Cardinal recordings');
-    expect(drawnText).toContain('37.567399, 126.978000');
+    expect(drawnText).toContain('37.5674, 126.9780');
     expect(drawnText).toContain('100 m');
     expect(object.material.transparent).toBe(true);
   });
@@ -142,6 +150,20 @@ describe('WP-4 canvas map panel', () => {
     expect(panel.hitTest(950, 550, 13)).toEqual({ type: 'EXIT_XR' });
   });
 
+  test('classifies pointer targets for the reticle without redrawing the canvas', () => {
+    panel = createMapPanel(new THREE.Scene());
+    const object = panel.getObject3D() as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+    const texture = object.material.map as THREE.CanvasTexture;
+    panel.setModel(createModel());
+    const version = texture.version;
+
+    expect(panel.classifyTarget(720, 550)).toBe('control'); // play-pause control rect
+    expect(panel.classifyTarget(340, 128)).toBe('marker'); // enabled 'north' marker
+    expect(panel.classifyTarget(400, 200)).toBe('disabled'); // unsupported marker
+    expect(panel.classifyTarget(500, 400)).toBe('panel'); // empty map area
+    expect(texture.version).toBe(version); // classification never repaints the canvas
+  });
+
   test('omits XR-only controls and their hit targets in desktop debug mode', () => {
     panel = createMapPanel(new THREE.Scene());
     vi.mocked(context.fillText).mockClear();
@@ -156,11 +178,41 @@ describe('WP-4 canvas map panel', () => {
     expect(drawnText).not.toContain('Exit MR');
     expect(drawnText).not.toContain('Recenter');
     expect(drawnText).not.toContain('Recalibrate');
-    expect(drawnText).not.toContain('Face true north and press trigger to calibrate.');
+    expect(drawnText).not.toContain('Face north, then pull the trigger.');
     expect(drawnText).not.toContain('No tracked controller. Use the Quest system control to exit Mixed Reality.');
     expect(panel.hitTest(950, 550, 1)).toBeNull();
     expect(panel.hitTest(900, 620, 2)).toBeNull();
     expect(panel.hitTest(800, 700, 3)).toBeNull();
+  });
+
+  test('makes the calibration instruction dominant and hides dead controls while calibrating', () => {
+    panel = createMapPanel(new THREE.Scene());
+    vi.mocked(context.fillText).mockClear();
+    panel.setModel({ ...createModel(), calibrationReady: false });
+
+    const drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
+    expect(drawnText).toContain('Face north, then pull the trigger.');
+    expect(drawnText).toContain('Exit MR');
+    expect(drawnText).not.toContain('Stop');
+    expect(drawnText).not.toContain('Recenter');
+  });
+
+  test('haloes ring strokes with a second dark pass for passthrough legibility', () => {
+    panel = createMapPanel(new THREE.Scene());
+    const base = { ...createModel(), markers: [] };
+    const rings = createModel().distanceRings;
+    const strokeMock = vi.mocked(context.stroke);
+
+    strokeMock.mockClear();
+    panel.setModel({ ...base, distanceRings: rings.slice(0, 4) });
+    const four = strokeMock.mock.calls.length;
+    strokeMock.mockClear();
+    panel.setModel({ ...base, distanceRings: rings.slice(0, 2) });
+    const two = strokeMock.mock.calls.length;
+
+    // Each ring adds exactly two stroke passes (halo + ink); the constant crosshair
+    // strokes cancel out of the difference.
+    expect(four - two).toBe(4);
   });
 
   test('surfaces controller fallback guidance without adding another input resource', () => {

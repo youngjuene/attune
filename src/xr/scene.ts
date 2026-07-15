@@ -6,6 +6,8 @@ export interface XRSceneResources {
   readonly appCamera: THREE.PerspectiveCamera;
   readonly controllerGroups: readonly [THREE.XRTargetRaySpace, THREE.XRTargetRaySpace];
   readonly controllerRays: readonly [THREE.Line, THREE.Line];
+  readonly rayMaterial: THREE.LineBasicMaterial;
+  readonly reticle: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   resize(): void;
   poseSurfaceFromCamera(surface: THREE.Object3D, camera: THREE.Camera): boolean;
   dispose(): void;
@@ -13,6 +15,12 @@ export interface XRSceneResources {
 
 const DEFAULT_FORWARD = new THREE.Vector3(0, 0, -1);
 const LOCAL_POSITIVE_Z = new THREE.Vector3(0, 0, 1);
+
+// three.js r185 WebXRManager defaults foveation to 1.0 (maximum), which renders the
+// panel's off-centre detail column and controls at reduced resolution. 0 disables
+// foveation (full resolution across the frame). Raise toward 0.2-0.3 only if on-device
+// frame timing regresses; never restore the 1.0 default.
+const XR_FOVEATION = 0;
 
 function finiteVector(vector: THREE.Vector3): boolean {
   return Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
@@ -33,6 +41,7 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
 
     renderer.setClearAlpha(0);
     renderer.xr.enabled = true;
+    renderer.xr.setFoveation(XR_FOVEATION);
     renderer.xr.setReferenceSpaceType('local');
     renderer.setSize(width, height);
     root.append(renderer.domElement);
@@ -53,6 +62,24 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
     firstGroup.add(firstRay);
     secondGroup.add(secondRay);
     scene.add(firstGroup, secondGroup);
+
+    // One surface cursor, matching the single-preferred-pointer model. A unit-radius ring
+    // scaled per-frame by hit distance keeps a constant angular size; depthTest off keeps it
+    // visible over the panel (renderOrder 11, above the panel's 10).
+    const reticleGeometry = new THREE.RingGeometry(0.55, 1, 24);
+    const reticleMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+    const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+    reticle.name = 'attune-pointer-reticle';
+    reticle.frustumCulled = false;
+    reticle.renderOrder = 11;
+    reticle.visible = false;
+    scene.add(reticle);
 
     let lastValidPanelForward = DEFAULT_FORWARD.clone();
     let disposed = false;
@@ -103,11 +130,14 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
       disposed = true;
       firstRay.visible = false;
       secondRay.visible = false;
+      reticle.visible = false;
       firstGroup.remove(firstRay);
       secondGroup.remove(secondRay);
-      scene.remove(firstGroup, secondGroup);
+      scene.remove(firstGroup, secondGroup, reticle);
       rayGeometry.dispose();
       rayMaterial.dispose();
+      reticleGeometry.dispose();
+      reticleMaterial.dispose();
       renderer.setAnimationLoop(null);
       renderer.dispose();
       renderer.domElement.remove();
@@ -120,6 +150,8 @@ export function createXRSceneResources(root: HTMLElement, windowRef: Window): XR
       appCamera,
       controllerGroups: [firstGroup, secondGroup],
       controllerRays: [firstRay, secondRay],
+      rayMaterial,
+      reticle,
       resize,
       poseSurfaceFromCamera,
       dispose,
