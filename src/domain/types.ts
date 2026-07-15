@@ -172,6 +172,7 @@ export interface AppState {
   location?: InitializedLocation;
   sessionActive: boolean;
   controllerAvailable: boolean;
+  panelVisible: boolean;
   calibration?: GeoFrame;
   selectedRecordingId?: string;
   playback: PlaybackSnapshot;
@@ -225,6 +226,7 @@ export type AppAction =
     }
   | { type: 'RECENTER_PANEL' }
   | { type: 'RECALIBRATE' }
+  | { type: 'TOGGLE_PANEL' }
   | { type: 'EXIT_XR' }
   | { type: 'XR_ENDED'; sessionGeneration: number }
   | { type: 'PLAYBACK_SNAPSHOT'; generation: number; snapshot: PlaybackSnapshot }
@@ -327,7 +329,7 @@ export interface RuntimeResourceCounts extends AudioResourceCounts {
   reticleGeometries: 0 | 1;
   reticleMaterials: 0 | 1;
   activeXRSessions: 0 | 1;
-  registeredXRSessionHandlers: 0 | 4;
+  registeredXRSessionHandlers: 0 | 5;
   registeredReferenceSpaceHandlers: 0 | 1;
   registeredControllerGroupHandlers: 0 | 4;
   controllerBindings: 0 | 1;
@@ -368,7 +370,8 @@ export type XRRuntimeEvent =
       nowMs: number;
       canvasX?: number;
       canvasY?: number;
-    };
+    }
+  | { sessionGeneration: number; type: 'primarySqueeze'; nowMs: number };
 
 export type MapMarkerState =
   | 'default'
@@ -400,6 +403,7 @@ export interface MapDistanceRingModel {
 export interface MapPanelModel {
   collectionTitle: string;
   xrControlsVisible: boolean;
+  panelVisible: boolean;
   markers: readonly MapMarkerModel[];
   distanceRings: readonly MapDistanceRingModel[];
   selected?: {

@@ -69,6 +69,12 @@ export class MockXRSession extends EventTarget {
     Object.defineProperty(event, 'inputSource', { value: inputSource });
     this.dispatchEvent(event);
   }
+
+  public emitSqueeze(inputSource: XRInputSource): void {
+    const event = new Event('squeeze');
+    Object.defineProperty(event, 'inputSource', { value: inputSource });
+    this.dispatchEvent(event);
+  }
 }
 
 export class MockXRSystem {

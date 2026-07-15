@@ -35,6 +35,7 @@ function createModel(): MapPanelModel {
   return {
     collectionTitle: 'Cardinal recordings',
     xrControlsVisible: true,
+    panelVisible: true,
     markers: [
       { recordingId: 'north', xPx: 340, yPx: 128, state: 'selected', enabled: true },
       {

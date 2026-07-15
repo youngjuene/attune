@@ -24,6 +24,7 @@ function model(markers: readonly MapMarkerModel[], overrides: Partial<MapPanelMo
   return {
     collectionTitle: 'fixture',
     xrControlsVisible: true,
+    panelVisible: true,
     markers,
     distanceRings: [],
     playback: { state: 'stopped', currentTimeSec: 0 },

@@ -597,6 +597,7 @@ class AttuneAppController implements AppController {
       case 'INPUT_AVAILABILITY_CHANGED':
       case 'AUDIO_GESTURE_REQUIRED':
       case 'PLAYBACK_SNAPSHOT':
+      case 'TOGGLE_PANEL':
       case 'CLEAR_RECOVERABLE_ERROR':
         break;
     }
@@ -826,6 +827,9 @@ class AttuneAppController implements AppController {
           if (hit !== null && hit !== undefined) this.dispatch(hit);
         }
         break;
+      case 'primarySqueeze':
+        if (this.state.phase === 'ready') this.dispatch({ type: 'TOGGLE_PANEL' });
+        break;
     }
   }
 
@@ -877,6 +881,7 @@ class AttuneAppController implements AppController {
     const model: MapPanelModel = {
       collectionTitle: this.state.manifest?.collection.title ?? 'attune',
       xrControlsVisible: !this.config.debugMode,
+      panelVisible: this.state.panelVisible,
       markers: projection.markers,
       distanceRings: projection.distanceRings,
       ...(selected === undefined ? {} : { selected }),

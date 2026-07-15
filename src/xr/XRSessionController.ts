@@ -88,6 +88,7 @@ interface SessionContext {
   readonly onVisibilityChange: (event: XRSessionEvent) => void;
   readonly onInputSourcesChange: (event: XRInputSourcesChangeEvent) => void;
   readonly onSelect: (event: XRInputSourceEvent) => void;
+  readonly onSqueeze: (event: XRInputSourceEvent) => void;
   readonly onReferenceReset: (event: XRReferenceSpaceEvent) => void;
   readonly groupHandlers: readonly [
     {
@@ -287,7 +288,7 @@ class SessionController implements XRSessionController {
       reticleGeometries: resourcesLive ? 1 : 0,
       reticleMaterials: resourcesLive ? 1 : 0,
       activeXRSessions: context?.handle !== null && context?.handle !== undefined ? 1 : 0,
-      registeredXRSessionHandlers: context?.sessionHandlersRegistered === true ? 4 : 0,
+      registeredXRSessionHandlers: context?.sessionHandlersRegistered === true ? 5 : 0,
       registeredReferenceSpaceHandlers: context?.referenceHandlerRegistered === true ? 1 : 0,
       registeredControllerGroupHandlers: context?.groupHandlersRegistered === true ? 4 : 0,
       controllerBindings: context?.preferredSource !== null && context?.preferredSource !== undefined ? 1 : 0,
@@ -498,6 +499,18 @@ class SessionController implements XRSessionController {
           nowMs: this.options.monotonicNowMs(),
         };
       },
+      onSqueeze: (event: XRInputSourceEvent): void => {
+        // The grip toggles panel visibility. No pointer coordinates are needed, so emit
+        // directly rather than deferring to the next frame like select.
+        if (!this.isCurrentContext(context) || event.inputSource !== context.preferredSource) {
+          return;
+        }
+        this.emit({
+          sessionGeneration: generation,
+          type: 'primarySqueeze',
+          nowMs: this.options.monotonicNowMs(),
+        });
+      },
       onReferenceReset: (_event: XRReferenceSpaceEvent): void => {
         if (!this.isCurrentContext(context)) {
           return;
@@ -536,12 +549,14 @@ class SessionController implements XRSessionController {
       context.session.addEventListener('visibilitychange', context.onVisibilityChange);
       context.session.addEventListener('inputsourceschange', context.onInputSourcesChange);
       context.session.addEventListener('select', context.onSelect);
+      context.session.addEventListener('squeeze', context.onSqueeze);
       context.sessionHandlersRegistered = true;
     } catch (cause) {
       context.session.removeEventListener('end', context.onEnd);
       context.session.removeEventListener('visibilitychange', context.onVisibilityChange);
       context.session.removeEventListener('inputsourceschange', context.onInputSourcesChange);
       context.session.removeEventListener('select', context.onSelect);
+      context.session.removeEventListener('squeeze', context.onSqueeze);
       throw cause;
     }
   }
@@ -827,6 +842,7 @@ class SessionController implements XRSessionController {
       context.session.removeEventListener('visibilitychange', context.onVisibilityChange);
       context.session.removeEventListener('inputsourceschange', context.onInputSourcesChange);
       context.session.removeEventListener('select', context.onSelect);
+      context.session.removeEventListener('squeeze', context.onSqueeze);
       context.sessionHandlersRegistered = false;
     }
     context.groupSources.clear();

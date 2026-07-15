@@ -69,7 +69,7 @@ describe('XRSessionController session lifecycle', () => {
       reticleGeometries: 1,
       reticleMaterials: 1,
       activeXRSessions: 1,
-      registeredXRSessionHandlers: 4,
+      registeredXRSessionHandlers: 5,
       registeredReferenceSpaceHandlers: 1,
       registeredControllerGroupHandlers: 4,
       controllerBindings: 0,
@@ -222,7 +222,7 @@ describe('XRSessionController session lifecycle', () => {
       controllerGroups: 2,
       controllerRayVisuals: 2,
       activeXRSessions: 1,
-      registeredXRSessionHandlers: 4,
+      registeredXRSessionHandlers: 5,
       registeredReferenceSpaceHandlers: 1,
       registeredControllerGroupHandlers: 4,
     });

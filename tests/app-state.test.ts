@@ -22,8 +22,8 @@ describe('pure application state reducer', () => {
       phase: 'booting', recordings: [], recordingEligibility: {}, rejectedRecordCount: 0,
       unsupportedRecordCount: 0, secureContext: false, debugMode: true, xrApiAvailable: false,
       immersiveARSupported: false, browserGeolocationAvailable: false, sessionActive: false,
-      controllerAvailable: false, playback: { state: 'empty', currentTimeSec: 0 }, masterGain: 0.7,
-      audioGestureRequired: false, buildCommit: 'test',
+      controllerAvailable: false, panelVisible: true, playback: { state: 'empty', currentTimeSec: 0 },
+      masterGain: 0.7, audioGestureRequired: false, buildCommit: 'test',
     });
     expect(Object.hasOwn(state, 'calibration')).toBe(false);
   });
@@ -43,6 +43,24 @@ describe('pure application state reducer', () => {
       locationGeneration: 4,
       location: { lat: 1, lon: 2, source: 'manual', timestampMs: 3 },
     }, context({ locationGeneration: 5 }))).toBe(state);
+  });
+
+  test('toggles panel visibility only in a live, non-debug ready session', () => {
+    const live = {
+      ...createInitialState(config),
+      debugMode: false,
+      sessionActive: true,
+      phase: 'ready' as const,
+      calibration: canonicalDebugFrame(1),
+    };
+    const hidden = reduceAppState(live, { type: 'TOGGLE_PANEL' }, context());
+    expect(hidden.panelVisible).toBe(false);
+    expect(reduceAppState(hidden, { type: 'TOGGLE_PANEL' }, context()).panelVisible).toBe(true);
+
+    const calibrating = { ...live, phase: 'calibrating' as const };
+    expect(reduceAppState(calibrating, { type: 'TOGGLE_PANEL' }, context())).toBe(calibrating);
+    const debug = { ...live, debugMode: true };
+    expect(reduceAppState(debug, { type: 'TOGGLE_PANEL' }, context())).toBe(debug);
   });
 
   test('clamps gain to tenths and returns identical state for semantic no-ops', () => {

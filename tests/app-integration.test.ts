@@ -193,7 +193,7 @@ class FakeXrController implements XRSessionController {
       renderers: 1, rendererCanvases: 1, scenes: 1, appCameras: 1, controllerGroups: 2,
       controllerRayVisuals: 2, pointerReticles: 1, reticleGeometries: 1, reticleMaterials: 1,
       activeXRSessions: this.active ? 1 : 0,
-      registeredXRSessionHandlers: this.active ? 4 : 0,
+      registeredXRSessionHandlers: this.active ? 5 : 0,
       registeredReferenceSpaceHandlers: this.active ? 1 : 0,
       registeredControllerGroupHandlers: this.active ? 4 : 0,
       controllerBindings: this.active ? 1 : 0,
@@ -368,7 +368,7 @@ describe('AppController integration', () => {
     expect(controller.getState()).toMatchObject({ phase: 'calibrating', sessionActive: true });
     expect(controller.resourceCounts()).toMatchObject({
       activeXRSessions: 1,
-      registeredXRSessionHandlers: 4,
+      registeredXRSessionHandlers: 5,
       registeredReferenceSpaceHandlers: 1,
       registeredControllerGroupHandlers: 4,
       controllerBindings: 1,
@@ -404,6 +404,41 @@ describe('AppController integration', () => {
       registeredControllerGroupHandlers: 0,
       controllerBindings: 0,
     });
+    await controller.dispose();
+  });
+
+  test('grip toggles the panel without interrupting playback or re-posing', async () => {
+    const xrSystem = {
+      isSessionSupported: vi.fn(() => Promise.resolve(true)),
+      requestSession: vi.fn(),
+    } as unknown as XRSystem;
+    setCapabilities({ secure: true, xr: xrSystem });
+    const audio = new FakeAudioPlayer();
+    const xr = new FakeXrController({ functional: true });
+    const map = new FakeMapPanel();
+    const setup = dependencies({ location: manualLocation, audio, xr, map });
+    const controller = createAppController(config(false), setup.deps);
+    await controller.initialize();
+    controller.dispatch({ type: 'SUBMIT_MANUAL_LOCATION', latText: '37.5665', lonText: '126.978' });
+    controller.dispatch({ type: 'XR_START_REQUESTED' });
+    await Promise.resolve();
+    await Promise.resolve();
+    xr.emit({ sessionGeneration: 1, type: 'primarySelect', nowMs: 10 });
+    await Promise.resolve();
+    expect(controller.getState().phase).toBe('ready');
+
+    map.hitAction = { type: 'SELECT_RECORDING', recordingId: 'north' };
+    xr.emit({ sessionGeneration: 1, type: 'primarySelect', nowMs: 15, canvasX: 512, canvasY: 384 });
+    const posesBefore = map.poses;
+    const commandsBefore = [...audio.commands];
+
+    xr.emit({ sessionGeneration: 1, type: 'primarySqueeze', nowMs: 20 });
+    expect(map.models.at(-1)?.panelVisible).toBe(false);
+    xr.emit({ sessionGeneration: 1, type: 'primarySqueeze', nowMs: 25 });
+    expect(map.models.at(-1)?.panelVisible).toBe(true);
+
+    expect(audio.commands).toEqual(commandsBefore); // playback uninterrupted by the toggle
+    expect(map.poses).toBe(posesBefore); // shown panel keeps its world pose (no re-pose)
     await controller.dispose();
   });
 

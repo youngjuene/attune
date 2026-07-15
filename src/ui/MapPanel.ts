@@ -264,6 +264,13 @@ class CanvasMapPanel implements MapPanel {
   private draw(): void {
     const context = this.context;
     const model = this.model;
+    // Hidden panel: hide the plane (which quiets the pointer via readPointer's visibility
+    // guard) and skip the texture upload. The world pose is retained for an identical restore.
+    if (model?.panelVisible === false) {
+      this.plane.visible = false;
+      return;
+    }
+    this.plane.visible = true;
     context.clearRect(0, 0, MAP_CANVAS_WIDTH, MAP_CANVAS_HEIGHT);
     // No full-bleed plate: the map region is pure passthrough, and ink is made legible by
     // per-element halos and content-sized scrims rather than a backing panel.
