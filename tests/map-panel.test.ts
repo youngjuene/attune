@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { MapPanel, MapPanelModel } from '../src/domain/types';
 import { createMapPanel } from '../src/ui/MapPanel';
+import { MAP_CANVAS_HEIGHT, MAP_CANVAS_SCALE, MAP_CANVAS_WIDTH } from '../src/ui/mapLayout';
 
 function createCanvasContext(): CanvasRenderingContext2D {
   return {
@@ -17,6 +18,7 @@ function createCanvasContext(): CanvasRenderingContext2D {
     moveTo: vi.fn(),
     restore: vi.fn(),
     save: vi.fn(),
+    setTransform: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
     fillStyle: '',
@@ -93,8 +95,10 @@ describe('WP-4 canvas map panel', () => {
     const texture = object.material.map as THREE.CanvasTexture;
 
     expect(panel.getCanvas()).toBe(canvas);
-    expect(canvas.width).toBe(1024);
-    expect(canvas.height).toBe(768);
+    // The backing bitmap is supersampled; the logical drawing space (1024x768) is
+    // unchanged. MAP_CANVAS_SCALE = 1 would reproduce the original 1024x768 backing.
+    expect(canvas.width).toBe(MAP_CANVAS_WIDTH * MAP_CANVAS_SCALE);
+    expect(canvas.height).toBe(MAP_CANVAS_HEIGHT * MAP_CANVAS_SCALE);
     expect(scene.children).toEqual([object]);
     expect(object.geometry.parameters).toMatchObject({ width: 0.96, height: 0.72 });
     expect(texture.image).toBe(canvas);

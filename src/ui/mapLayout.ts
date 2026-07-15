@@ -10,6 +10,11 @@ export interface CanvasRect extends CanvasPoint {
 
 export const MAP_CANVAS_WIDTH = 1024 as const;
 export const MAP_CANVAS_HEIGHT = 768 as const;
+// Supersample factor for the backing canvas only. The logical drawing space stays
+// 1024x768 (the frozen XRInteractionSurface coordinates); a larger backing bitmap plus a
+// context transform raise texture density above the display's PPD. Setting this to 1
+// reproduces the pre-supersampling layout byte-for-byte.
+export const MAP_CANVAS_SCALE = 1.5 as const;
 export const MAP_WORLD_WIDTH_M = 0.96 as const;
 export const MAP_WORLD_HEIGHT_M = 0.72 as const;
 

@@ -15,6 +15,7 @@ import {
   FOOTER_RECT,
   HEADER_RECT,
   MAP_CANVAS_HEIGHT,
+  MAP_CANVAS_SCALE,
   MAP_CANVAS_WIDTH,
   MAP_CENTER,
   MAP_CONTROLS,
@@ -108,13 +109,17 @@ class CanvasMapPanel implements MapPanel {
 
   public constructor(private readonly scene: THREE.Scene) {
     this.canvas = document.createElement('canvas');
-    this.canvas.width = MAP_CANVAS_WIDTH;
-    this.canvas.height = MAP_CANVAS_HEIGHT;
+    this.canvas.width = MAP_CANVAS_WIDTH * MAP_CANVAS_SCALE;
+    this.canvas.height = MAP_CANVAS_HEIGHT * MAP_CANVAS_SCALE;
     this.canvas.dataset.attuneOwned = 'map-canvas';
     const context = this.canvas.getContext('2d');
     if (context === null) {
       throw new AppError('XR_RENDERER_INIT_FAILED');
     }
+    // Every draw() call works in logical 1024x768 coordinates; this transform maps them
+    // onto the larger backing bitmap. setTransform (not scale) is absolute, so it does not
+    // compound across the many redraws.
+    context.setTransform(MAP_CANVAS_SCALE, 0, 0, MAP_CANVAS_SCALE, 0, 0);
     this.context = context;
 
     this.texture = new THREE.CanvasTexture(this.canvas);
