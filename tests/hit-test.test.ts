@@ -100,6 +100,27 @@ describe('WP-4 hit testing', () => {
     });
   });
 
+  test('advances the overlap cycle under natural jitter above the old 8px box', () => {
+    const panelModel = model([
+      marker('ä', 340, 414),
+      marker('Z', 340, 414),
+      marker('a', 340, 414),
+    ]);
+    const tester = new MapHitTester();
+    tester.setMarkers(panelModel.markers);
+
+    expect(tester.select(panelModel, 340, 414, 1_000)).toMatchObject({
+      action: { recordingId: 'Z' },
+      overlapIndex: 0,
+    });
+    // A ~9px re-click (below hand tremor, above the retired 8px box) must still advance
+    // through the identical candidate set instead of silently resetting to index 0.
+    expect(tester.select(panelModel, 349, 414, 1_100)).toMatchObject({
+      action: { recordingId: 'a' },
+      overlapIndex: 1,
+    });
+  });
+
   test('includes disabled markers in hover order but never selects them', () => {
     const panelModel = model([
       marker('a-disabled', 200, 200, false),

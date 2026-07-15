@@ -2,7 +2,9 @@
 
 attune is a static Vite and Three.js application for exploring geographically indexed point-source recordings in Meta Quest 3 mixed reality.
 
-This repository currently contains the WP-0 contract-freeze baseline: the strict TypeScript/Vite scaffold, shared contracts, deterministic content fixtures, bootstrap validator, adapter placeholder, and CI verification gate. The fixture path is intentional while external gates G-01 through G-05 remain open.
+This repository builds on the WP-0 contract-freeze baseline (strict TypeScript/Vite scaffold, shared contracts, deterministic content fixtures, bootstrap validator, adapter placeholder, and CI verification gate) through the WP-1–WP-7 runtime: location, geodesy/projection, spatial audio, the canvas map panel, XR session lifecycle, and the WP-7 passthrough-legibility pass. The fixture path is intentional while external gates G-01 through G-05 remain open.
+
+WP-7 adds passthrough-legibility compositor settings (foveation off, native framebuffer scale), a supersampled map canvas, a minimal per-element visual language with an 18px type floor, a grip toggle that hides the panel for clean passthrough without stopping audio, and a distance-scaled 3D pointer reticle. See `docs/adr/0002-pointer-cursor-and-panel-toggle.md`.
 
 ## Geographic and listener frames
 
@@ -28,4 +30,4 @@ npm run dev
 
 The bootstrap content validator writes deterministic machine-readable evidence to `artifacts/content-validation.json`. Generated JSON evidence is ignored by Git. `npm run adapt:content` deliberately exits with code 2 and reports G-01 open until representative source metadata and its approved field mapping are supplied.
 
-WP-0 does not claim WebXR, browser, hosting, production-content, audio-suitability, or physical Quest 3 validation.
+On-device validation remains open: passthrough contrast and the WP-7 compositor frame-timing tradeoff (foveation, framebuffer scale) require a physical Quest 3 and are not exercised in CI. The repository does not claim hosting, production-content, or audio-suitability validation.
