@@ -142,6 +142,31 @@ describe('pure application state reducer', () => {
     expect(recalibrated.playbackById['b']?.state).toBe('paused');
   });
 
+  test('stops every active source on STOP_ALL and leaves RESUME_ALL to effects', () => {
+    const ctx = context({ config: { ...config, maxSimultaneousSources: 3 } });
+    const base: AppState = {
+      ...createInitialState(config),
+      phase: 'ready',
+      calibration: canonicalDebugFrame(1),
+      selectedRecordingId: 'b',
+      activeRecordingIds: ['a', 'b'],
+      playback: { state: 'playing', recordingId: 'b', currentTimeSec: 3 },
+      playbackById: {
+        a: { state: 'playing', recordingId: 'a', currentTimeSec: 1 },
+        b: { state: 'playing', recordingId: 'b', currentTimeSec: 3 },
+      },
+    };
+
+    const stopped = reduceAppState(base, { type: 'STOP_ALL' }, ctx);
+    expect(stopped.playbackById['a']).toMatchObject({ state: 'stopped', currentTimeSec: 0 });
+    expect(stopped.playbackById['b']).toMatchObject({ state: 'stopped', currentTimeSec: 0 });
+    expect(stopped.playback).toEqual({ state: 'stopped', recordingId: 'b', currentTimeSec: 0 });
+
+    expect(reduceAppState(stopped, { type: 'RESUME_ALL' }, ctx)).toBe(stopped);
+    const idle: AppState = { ...base, activeRecordingIds: [], playbackById: {} };
+    expect(reduceAppState(idle, { type: 'STOP_ALL' }, ctx)).toBe(idle);
+  });
+
   test('clamps gain to tenths and returns identical state for semantic no-ops', () => {
     const state = { ...createInitialState(config), phase: 'ready' as const, calibration: canonicalDebugFrame(1) };
     const changed = reduceAppState(state, { type: 'SET_MASTER_GAIN', value: 0.84 }, context());

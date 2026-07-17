@@ -340,6 +340,45 @@ describe('SoundscapePlayer', () => {
     await expect(player.playById(4, 'missing')).resolves.toBeUndefined();
   });
 
+  it('resumes every assigned source with one broadcast generation', async () => {
+    const { player, medias } = createHarness(2);
+    await activatePlaying(player, medias[0] as MockMediaElement, 1, 'a');
+    await activatePlaying(player, medias[1] as MockMediaElement, 2, 'b');
+    player.pauseAll(3, 'lifecycle');
+    expect(player.snapshotById('a').state).toBe('paused');
+
+    const resume = player.playAll(4);
+    medias[0]?.playAttempts.at(-1)?.resolve();
+    medias[1]?.playAttempts.at(-1)?.resolve();
+    await resume;
+    expect(player.snapshotById('a').state).toBe('playing');
+    expect(player.snapshotById('b').state).toBe('playing');
+  });
+
+  it('coalesces progress-only events to one per tick while passing state changes through', async () => {
+    const { player, medias } = createHarness(2);
+    await activatePlaying(player, medias[0] as MockMediaElement, 1, 'a');
+    await activatePlaying(player, medias[1] as MockMediaElement, 2, 'b');
+    const events: SoundscapeEvent[] = [];
+    player.subscribe((event) => events.push(event));
+
+    (medias[0] as MockMediaElement).currentTime = 1;
+    medias[0]?.emit('timeupdate');
+    (medias[1] as MockMediaElement).currentTime = 1;
+    medias[1]?.emit('timeupdate');
+
+    // Both units passed their own per-unit throttle, but the coordinator
+    // forwards only one progress event inside a single tick window.
+    const progressEvents = events.filter((event) => event.snapshot.state === 'playing');
+    expect(progressEvents).toHaveLength(1);
+    expect(progressEvents[0]?.recordingId).toBe('a');
+
+    // A state change bypasses the progress window immediately.
+    player.pauseById(3, 'b', 'lifecycle');
+    expect(events.at(-1)?.recordingId).toBe('b');
+    expect(events.at(-1)?.snapshot.state).toBe('paused');
+  });
+
   it('disposes the pool and its own listener exactly once', async () => {
     const { player, medias, camera, scene, listener } = createHarness(2);
     await activatePlaying(player, medias[0] as MockMediaElement, 1, 'a');

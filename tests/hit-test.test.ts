@@ -25,6 +25,7 @@ function model(markers: readonly MapMarkerModel[], overrides: Partial<MapPanelMo
     collectionTitle: 'fixture',
     xrControlsVisible: true,
     panelVisible: true,
+    soundscapeControlsVisible: false,
     markers,
     distanceRings: [],
     playback: { state: 'stopped', currentTimeSec: 0 },

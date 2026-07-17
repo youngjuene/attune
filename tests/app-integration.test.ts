@@ -126,6 +126,7 @@ class FakeAudioPlayer implements SoundscapePlayer {
   public stopById(generation: number, _recordingId: string): void { this.commands.push(`stop:${generation}`); }
   public pauseAll(generation: number, reason: 'user' | 'lifecycle'): void { this.commands.push(`pause:${generation}:${reason}`); }
   public stopAll(generation: number): void { this.commands.push(`stopAll:${generation}`); }
+  public playAll(generation: number): Promise<void> { this.commands.push(`playAll:${generation}`); return Promise.resolve(); }
   public setPosition(_recordingId: string, position: THREE.Vector3): void {
     this.appliedPositions.push(position.clone());
     this.commands.push(`position:${position.toArray().join(',')}`);

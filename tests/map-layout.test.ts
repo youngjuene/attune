@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   DETAIL_COLUMN_RECT,
+  SOUNDSCAPE_CONTROLS,
   FOOTER_RECT,
   HEADER_RECT,
   MAP_CANVAS_HEIGHT,
@@ -42,6 +43,20 @@ describe('WP-4 fixed map layout', () => {
     expect(containsPoint(MAP_CONTROLS[0]!.rect, 700, 536)).toBe(true);
     expect(containsPoint(MAP_CONTROLS[0]!.rect, 795.999, 591.999)).toBe(true);
     expect(containsPoint(MAP_CONTROLS[0]!.rect, 796, 592)).toBe(false);
+  });
+
+  test('places the soundscape control row clear of detail ink and the progress strip', () => {
+    expect(SOUNDSCAPE_CONTROLS.map(({ id, rect }) => ({ id, rect }))).toEqual([
+      { id: 'stop-all', rect: { x: 700, y: 412, width: 144, height: 56 } },
+      { id: 'resume-all', rect: { x: 860, y: 412, width: 144, height: 56 } },
+    ]);
+    for (const control of SOUNDSCAPE_CONTROLS) {
+      expect(control.rect.y + control.rect.height).toBeLessThanOrEqual(PROGRESS_RECT.y);
+      expect(control.rect.x).toBeGreaterThanOrEqual(SELECTED_DETAIL_RECT.x);
+      expect(control.rect.x + control.rect.width).toBeLessThanOrEqual(
+        SELECTED_DETAIL_RECT.x + SELECTED_DETAIL_RECT.width,
+      );
+    }
   });
 
   test('converts controller UV and mouse coordinates into one canvas space', () => {

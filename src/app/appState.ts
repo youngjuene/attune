@@ -345,6 +345,21 @@ export function reduceAppState(
     case 'PAUSE':
     case 'STOP':
       return state;
+    case 'STOP_ALL': {
+      if (state.phase !== 'ready' || state.activeRecordingIds.length === 0) return state;
+      const playbackById: Record<string, PlaybackSnapshot> = {};
+      for (const [id, snapshot] of Object.entries(state.playbackById)) {
+        playbackById[id] = { ...snapshot, state: 'stopped', currentTimeSec: 0 };
+      }
+      const focusId = state.selectedRecordingId;
+      const focusPlayback = focusId !== undefined && state.activeRecordingIds.includes(focusId)
+        ? { playback: { state: 'stopped' as const, recordingId: focusId, currentTimeSec: 0 } }
+        : {};
+      return { ...state, playbackById, ...focusPlayback };
+    }
+    case 'RESUME_ALL':
+      // Effects drive the units; per-source snapshots update the state.
+      return state;
     case 'SET_MASTER_GAIN': {
       if (state.phase !== 'ready' || !Number.isFinite(action.value)) return state;
       const value = Math.round(Math.min(1, Math.max(0, action.value)) * 10) / 10;

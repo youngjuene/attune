@@ -1,5 +1,6 @@
 import type { MapMarkerModel, MapPanelAction, MapPanelModel } from '../domain/types';
 import {
+  ALL_MAP_CONTROLS,
   DENSE_GRID_CELL_SIZE_PX,
   MAP_CONTROLS,
   MARKER_HIT_RADIUS_PX,
@@ -91,7 +92,8 @@ function isXrOnlyControl(controlId: MapControlId): boolean {
 }
 
 export function controlActionAt(model: MapPanelModel, x: number, y: number): ControlHit | null {
-  for (const control of MAP_CONTROLS) {
+  const controls = model.soundscapeControlsVisible ? ALL_MAP_CONTROLS : MAP_CONTROLS;
+  for (const control of controls) {
     if (!model.xrControlsVisible && isXrOnlyControl(control.id)) {
       continue;
     }
@@ -128,6 +130,10 @@ export function controlActionAt(model: MapPanelModel, x: number, y: number): Con
         return { kind: 'control', controlId: control.id, action: { type: 'RECENTER_PANEL' } };
       case 'recalibrate':
         return { kind: 'control', controlId: control.id, action: { type: 'RECALIBRATE' } };
+      case 'stop-all':
+        return { kind: 'control', controlId: control.id, action: { type: 'STOP_ALL' } };
+      case 'resume-all':
+        return { kind: 'control', controlId: control.id, action: { type: 'RESUME_ALL' } };
     }
   }
   return null;

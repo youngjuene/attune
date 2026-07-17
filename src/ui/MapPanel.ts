@@ -13,6 +13,7 @@ import type {
 import { COLORS } from './colors';
 import { MapHitTester, controlActionAt } from './hitTest';
 import {
+  ALL_MAP_CONTROLS,
   FOOTER_RECT,
   MAP_CANVAS_HEIGHT,
   MAP_CANVAS_SCALE,
@@ -514,7 +515,8 @@ class CanvasMapPanel implements MapPanel {
     const context = this.context;
     const model = this.model;
     const calibrationPending = model?.calibrationReady === false;
-    for (const control of MAP_CONTROLS) {
+    const controls = model?.soundscapeControlsVisible === true ? ALL_MAP_CONTROLS : MAP_CONTROLS;
+    for (const control of controls) {
       const xrOnly = control.id === 'exit-xr' || control.id === 'recenter' || control.id === 'recalibrate';
       if (model?.xrControlsVisible === false && xrOnly) {
         continue;

@@ -46,6 +46,9 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
   private readonly slots: UnitSlot[] = [];
   private readonly unitUnsubscribes: Unsubscribe[] = [];
   private readonly subscribers = new Set<(event: SoundscapeEvent) => void>();
+  private readonly progressIntervalMs: number;
+  private readonly lastForwardedByRecording = new Map<string, PlaybackSnapshot>();
+  private nextProgressForwardAtMs = 0;
   private activationSequence = 0;
   private disposed = false;
 
@@ -58,6 +61,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     if (!Number.isInteger(cap) || cap < 1 || cap > 8) {
       throw new AppError('AUDIO_INITIALIZATION_FAILED');
     }
+    this.progressIntervalMs = 1_000 / options.progressUpdateHz;
 
     this.listener = new THREE.AudioListener();
     this.camera.add(this.listener);
@@ -139,6 +143,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     slot.unit.stop(generation);
     slot.recordingId = undefined;
     slot.distanceGain = 1;
+    this.lastForwardedByRecording.delete(recordingId);
     this.recomputeMixGains();
   }
 
@@ -169,6 +174,14 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     for (const slot of this.assignedSlots()) {
       slot.unit.stop(generation);
     }
+  }
+
+  public playAll(generation: number): Promise<void> {
+    this.assertLive();
+    // One broadcast generation is strictly newer for every unit (ADR 0003).
+    return Promise
+      .all(this.assignedSlots().map((slot) => slot.unit.play(generation)))
+      .then(() => undefined);
   }
 
   public setPosition(recordingId: string, position: THREE.Vector3): void {
@@ -277,6 +290,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     this.camera.remove(this.listener);
     this.listener.gain.disconnect();
     this.subscribers.clear();
+    this.lastForwardedByRecording.clear();
   }
 
   private assertLive(): void {
@@ -306,6 +320,23 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     if (recordingId === undefined || this.disposed) {
       return;
     }
+    // D-6 coalescing: state/metadata changes pass immediately; progress-only
+    // updates are bounded to one forwarded event per tick across all units so
+    // the MapPanel texture upload stays constant-rate regardless of source count.
+    const previous = this.lastForwardedByRecording.get(recordingId);
+    const progressOnly = previous !== undefined
+      && previous.state === event.snapshot.state
+      && previous.errorCode === event.snapshot.errorCode
+      && previous.durationSec === event.snapshot.durationSec
+      && previous.loadedRecordingId === event.snapshot.loadedRecordingId;
+    if (progressOnly) {
+      const nowMs = performance.now();
+      if (nowMs < this.nextProgressForwardAtMs) {
+        return;
+      }
+      this.nextProgressForwardAtMs = nowMs + this.progressIntervalMs;
+    }
+    this.lastForwardedByRecording.set(recordingId, { ...event.snapshot });
     const forwarded: SoundscapeEvent = {
       generation: event.generation,
       recordingId,

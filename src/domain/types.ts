@@ -223,6 +223,8 @@ export type AppAction =
   | { type: 'PLAY' }
   | { type: 'PAUSE' }
   | { type: 'STOP' }
+  | { type: 'STOP_ALL' }
+  | { type: 'RESUME_ALL' }
   | { type: 'SET_MASTER_GAIN'; value: number }
   | {
       type: 'AUDIO_GESTURE_REQUIRED';
@@ -415,6 +417,8 @@ export interface MapPanelModel {
   collectionTitle: string;
   xrControlsVisible: boolean;
   panelVisible: boolean;
+  /** Stop all / Resume all controls, shown only when the cap allows multiple sources. */
+  soundscapeControlsVisible: boolean;
   markers: readonly MapMarkerModel[];
   distanceRings: readonly MapDistanceRingModel[];
   selected?: {
@@ -444,6 +448,8 @@ export type MapPanelAction = Extract<
       | 'PLAY'
       | 'PAUSE'
       | 'STOP'
+      | 'STOP_ALL'
+      | 'RESUME_ALL'
       | 'SET_MASTER_GAIN'
       | 'RECENTER_PANEL'
       | 'RECALIBRATE'
@@ -582,6 +588,7 @@ export interface SoundscapePlayer extends Disposable {
   stopById(generation: number, recordingId: string): void;
   pauseAll(generation: number, reason: 'user' | 'lifecycle'): void;
   stopAll(generation: number): void;
+  playAll(generation: number): Promise<void>;
   setPosition(recordingId: string, position: THREE.Vector3): void;
   setMasterGain(value: number): void;
   /**

@@ -38,7 +38,9 @@ export type MapControlId =
   | 'volume-down'
   | 'volume-up'
   | 'recenter'
-  | 'recalibrate';
+  | 'recalibrate'
+  | 'stop-all'
+  | 'resume-all';
 
 export interface MapControlLayout {
   id: MapControlId;
@@ -55,6 +57,21 @@ export const MAP_CONTROLS: readonly Readonly<MapControlLayout>[] = Object.freeze
   { id: 'recenter', label: 'Recenter', rect: Object.freeze({ x: 876, y: 608, width: 128, height: 56 }) },
   { id: 'recalibrate', label: 'Recalibrate north', rect: Object.freeze({ x: 700, y: 680, width: 304, height: 56 }) },
 ] satisfies MapControlLayout[]);
+
+/**
+ * Soundscape collective controls (ADR 0003 / PRD v1.7 delta D-5), drawn and
+ * hit-tested only when the cap allows multiple sources. The row sits between
+ * the detail text (ink ends by ~y 318) and the progress strip (y 488).
+ */
+export const SOUNDSCAPE_CONTROLS: readonly Readonly<MapControlLayout>[] = Object.freeze([
+  { id: 'stop-all', label: 'Stop all', rect: Object.freeze({ x: 700, y: 412, width: 144, height: 56 }) },
+  { id: 'resume-all', label: 'Resume all', rect: Object.freeze({ x: 860, y: 412, width: 144, height: 56 }) },
+] satisfies MapControlLayout[]);
+
+export const ALL_MAP_CONTROLS: readonly Readonly<MapControlLayout>[] = Object.freeze([
+  ...MAP_CONTROLS,
+  ...SOUNDSCAPE_CONTROLS,
+]);
 
 export function containsPoint(rect: Readonly<CanvasRect>, x: number, y: number): boolean {
   return x >= rect.x

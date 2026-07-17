@@ -28,6 +28,12 @@ Accepted for WP-8 (soundscape work packages WP-A through WP-F). Amends the
 - WP-C: a `SoundscapePlayer` contract aggregating N `SpatialAudioPlayer` units;
   its resource counts are the exact sums of its units plus its one shared
   listener, so the no-leak invariants stay numerically exact.
+- WP-E: `AppAction`/`MapPanelAction` gain `STOP_ALL` and `RESUME_ALL`;
+  `MapPanelModel` gains required `soundscapeControlsVisible` (true only when
+  the cap allows multiple sources, keeping cap-1 rendering identical);
+  `SoundscapePlayer` gains `playAll(generation)`; mapLayout adds the
+  `SOUNDSCAPE_CONTROLS` row (y 412, detail column) between the detail text
+  and the progress strip.
 
 ## Context
 

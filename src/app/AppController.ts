@@ -606,6 +606,20 @@ class AttuneAppController implements AppController {
           this.soundscape?.stopById(this.mintSelectionGeneration(focusId), focusId);
         }
         break;
+      case 'STOP_ALL':
+        if (before.phase === 'ready' && before.activeRecordingIds.length > 0) {
+          const generation = ++this.selectionGeneration;
+          this.stampActiveGenerations(before, generation);
+          this.soundscape?.stopAll(generation);
+        }
+        break;
+      case 'RESUME_ALL':
+        if (before.phase === 'ready' && before.activeRecordingIds.length > 0) {
+          const generation = ++this.selectionGeneration;
+          this.stampActiveGenerations(before, generation);
+          void this.soundscape?.playAll(generation);
+        }
+        break;
       case 'SET_MASTER_GAIN':
         if (after !== before) this.soundscape?.setMasterGain(after.masterGain);
         break;
@@ -962,6 +976,7 @@ class AttuneAppController implements AppController {
       collectionTitle: this.state.manifest?.collection.title ?? 'attune',
       xrControlsVisible: !this.config.debugMode,
       panelVisible: this.state.panelVisible,
+      soundscapeControlsVisible: (this.runtimeConfig?.maxSimultaneousSources ?? 1) > 1,
       markers: projection.markers,
       distanceRings: projection.distanceRings,
       ...(selected === undefined ? {} : { selected }),

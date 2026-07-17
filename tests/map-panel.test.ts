@@ -36,6 +36,7 @@ function createModel(): MapPanelModel {
     collectionTitle: 'Cardinal recordings',
     xrControlsVisible: true,
     panelVisible: true,
+    soundscapeControlsVisible: false,
     markers: [
       { recordingId: 'north', xPx: 340, yPx: 128, state: 'selected', enabled: true },
       {
@@ -195,6 +196,26 @@ describe('WP-4 canvas map panel', () => {
     expect(drawnText).toContain('Exit MR');
     expect(drawnText).not.toContain('Stop');
     expect(drawnText).not.toContain('Recenter');
+  });
+
+  test('shows soundscape controls only when the cap allows and routes their actions', () => {
+    panel = createMapPanel(new THREE.Scene());
+    vi.mocked(context.fillText).mockClear();
+    panel.setModel(createModel());
+    let drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
+    expect(drawnText).not.toContain('Stop all');
+    expect(drawnText).not.toContain('Resume all');
+    expect(panel.hitTest(720, 440, 1)).toBeNull();
+    expect(panel.classifyTarget(720, 440)).toBe('panel');
+
+    vi.mocked(context.fillText).mockClear();
+    panel.setModel({ ...createModel(), soundscapeControlsVisible: true });
+    drawnText = vi.mocked(context.fillText).mock.calls.map(([text]) => text);
+    expect(drawnText).toContain('Stop all');
+    expect(drawnText).toContain('Resume all');
+    expect(panel.hitTest(720, 440, 2)).toEqual({ type: 'STOP_ALL' });
+    expect(panel.hitTest(900, 440, 3)).toEqual({ type: 'RESUME_ALL' });
+    expect(panel.classifyTarget(900, 440)).toBe('control');
   });
 
   test('haloes ring strokes with a second dark pass for passthrough legibility', () => {
