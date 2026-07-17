@@ -19,7 +19,9 @@ function sameConfig(left: Readonly<AppConfig>, right: Readonly<AppConfig>): bool
     && left.progressUpdateHz === right.progressUpdateHz
     && left.sourceRadiusMOverride === right.sourceRadiusMOverride
     && left.buildCommit === right.buildCommit
-    && left.debugMode === right.debugMode;
+    && left.debugMode === right.debugMode
+    && left.defaultLocation?.lat === right.defaultLocation?.lat
+    && left.defaultLocation?.lon === right.defaultLocation?.lon;
 }
 
 export function initializeBootstrapShell(config: Readonly<AppConfig> = getAppConfig()): BootstrapShell {

@@ -1,4 +1,4 @@
-import type { AppState, MapPanel, RuntimeResourceCounts } from '../domain/types';
+import type { AppState, LatLon, MapPanel, RuntimeResourceCounts } from '../domain/types';
 import { createDebugView } from '../debug/DebugView';
 
 const ERROR_GUIDANCE: Readonly<Record<string, string>> = Object.freeze({
@@ -45,15 +45,20 @@ function button(action: string, label: string, disabled = false): HTMLButtonElem
 
 /** Stateless shell renderer. AppController owns all delegated events. */
 export class PreflightView {
-  public constructor(private readonly root: HTMLElement) {}
+  public constructor(
+    private readonly root: HTMLElement,
+    private readonly defaultLocation?: LatLon,
+  ) {}
 
   public render(
     state: AppState,
     counts: RuntimeResourceCounts,
     mapPanel: MapPanel | null,
   ): void {
-    const oldLat = this.root.querySelector<HTMLInputElement>('[name="latitude"]')?.value ?? '';
-    const oldLon = this.root.querySelector<HTMLInputElement>('[name="longitude"]')?.value ?? '';
+    const defaultLat = this.defaultLocation === undefined ? '' : String(this.defaultLocation.lat);
+    const defaultLon = this.defaultLocation === undefined ? '' : String(this.defaultLocation.lon);
+    const oldLat = this.root.querySelector<HTMLInputElement>('[name="latitude"]')?.value ?? defaultLat;
+    const oldLon = this.root.querySelector<HTMLInputElement>('[name="longitude"]')?.value ?? defaultLon;
     const main = document.createElement('main');
     main.className = 'app-shell';
     main.dataset.attuneOwned = 'app-shell';

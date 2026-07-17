@@ -96,7 +96,9 @@ function sameConfig(left: Readonly<AppConfig>, right: Readonly<AppConfig>): bool
     && left.progressUpdateHz === right.progressUpdateHz
     && left.sourceRadiusMOverride === right.sourceRadiusMOverride
     && left.buildCommit === right.buildCommit
-    && left.debugMode === right.debugMode;
+    && left.debugMode === right.debugMode
+    && left.defaultLocation?.lat === right.defaultLocation?.lat
+    && left.defaultLocation?.lon === right.defaultLocation?.lon;
 }
 
 function errorCode(error: unknown, fallback: AppErrorCode): AppErrorCode {
@@ -922,7 +924,7 @@ class AttuneAppController implements AppController {
     const root = this.documentRef.querySelector<HTMLElement>('#app');
     if (root === null) throw new AppError('CONFIGURATION_CONFLICT');
     this.root = root;
-    this.view = new PreflightView(root);
+    this.view = new PreflightView(root, this.config.defaultLocation);
     root.addEventListener('click', this.onRootClick);
     root.addEventListener('input', this.onRootInput);
     root.addEventListener('pointermove', this.onRootPointerMove);

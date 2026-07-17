@@ -7,6 +7,7 @@ export interface AppConfig {
   sourceRadiusMOverride?: number;
   buildCommit: string;
   debugMode: boolean;
+  defaultLocation?: LatLon;
 }
 
 export interface RuntimeConfig extends Omit<AppConfig, 'sourceRadiusMOverride'> {

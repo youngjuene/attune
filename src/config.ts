@@ -1,5 +1,5 @@
 import { AppError } from './app/errors';
-import type { AppConfig } from './domain/types';
+import type { AppConfig, LatLon } from './domain/types';
 
 const NUMERIC_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 const BUILD_COMMIT_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -72,6 +72,22 @@ function resolveBuildCommit(raw: string | undefined): string {
   return buildCommit;
 }
 
+function resolveDefaultLocation(latRaw: string | undefined, lonRaw: string | undefined): LatLon | undefined {
+  const latText = latRaw?.trim() ?? '';
+  const lonText = lonRaw?.trim() ?? '';
+  if (latText === '' && lonText === '') {
+    return undefined;
+  }
+  if (latText === '' || lonText === '') {
+    // A half-specified default coordinate is a misconfiguration: require both or neither.
+    throw configurationError();
+  }
+  return {
+    lat: parseNumber(latText, 0, -90, 90, false),
+    lon: parseNumber(lonText, 0, -180, 180, false),
+  };
+}
+
 export function getAppConfig(): Readonly<AppConfig> {
   if (resolvedConfig !== undefined) {
     return resolvedConfig;
@@ -81,6 +97,11 @@ export function getAppConfig(): Readonly<AppConfig> {
   const sourceRadiusMOverride = sourceRadiusText === undefined || sourceRadiusText.trim() === ''
     ? undefined
     : parseNumber(sourceRadiusText, 3, 1.5, 8, false);
+
+  const defaultLocation = resolveDefaultLocation(
+    import.meta.env.VITE_DEFAULT_LAT,
+    import.meta.env.VITE_DEFAULT_LON,
+  );
 
   const config: AppConfig = {
     manifestUrl: resolveManifestUrl(import.meta.env.VITE_MANIFEST_URL, document.baseURI, window.location),
@@ -94,6 +115,7 @@ export function getAppConfig(): Readonly<AppConfig> {
     progressUpdateHz: parseNumber(import.meta.env.VITE_PROGRESS_UPDATE_HZ, 4, 1, 10, true),
     buildCommit: resolveBuildCommit(import.meta.env.VITE_BUILD_COMMIT),
     debugMode: new URLSearchParams(window.location.search).get('debug') === '1',
+    ...(defaultLocation === undefined ? {} : { defaultLocation }),
     ...(sourceRadiusMOverride === undefined ? {} : { sourceRadiusMOverride }),
   };
 
