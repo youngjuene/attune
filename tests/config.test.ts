@@ -11,6 +11,7 @@ describe('canonical configuration', () => {
     window.history.replaceState({}, '', '/?debug=1&debug=0');
     // Vite loads .env.local in every mode (including test); blank-stub the
     // developer-local knobs so this canonical-defaults test stays hermetic.
+    vi.stubEnv('VITE_MANIFEST_URL', '');
     vi.stubEnv('VITE_MAX_SIMULTANEOUS_SOURCES', '');
     vi.stubEnv('VITE_DEFAULT_LAT', '');
     vi.stubEnv('VITE_DEFAULT_LON', '');

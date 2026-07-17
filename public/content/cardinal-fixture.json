@@ -13,8 +13,8 @@
   "recordings": [
     {
       "id": "north",
-      "title": "North",
-      "audioUrl": "../audio/test-tone.wav",
+      "title": "North (440 Hz)",
+      "audioUrl": "../audio/tone-440.wav",
       "mimeType": "audio/wav",
       "location": {
         "lat": 37.567399320364,
@@ -24,8 +24,8 @@
     },
     {
       "id": "east",
-      "title": "East",
-      "audioUrl": "../audio/test-tone.wav",
+      "title": "East (550 Hz)",
+      "audioUrl": "../audio/tone-550.wav",
       "mimeType": "audio/wav",
       "location": {
         "lat": 37.566499994571,
@@ -35,8 +35,8 @@
     },
     {
       "id": "south",
-      "title": "South",
-      "audioUrl": "../audio/test-tone.wav",
+      "title": "South (660 Hz)",
+      "audioUrl": "../audio/tone-660.wav",
       "mimeType": "audio/wav",
       "location": {
         "lat": 37.565600679636,
@@ -46,8 +46,8 @@
     },
     {
       "id": "west",
-      "title": "West",
-      "audioUrl": "../audio/test-tone.wav",
+      "title": "West (880 Hz)",
+      "audioUrl": "../audio/tone-880.wav",
       "mimeType": "audio/wav",
       "location": {
         "lat": 37.566499994571,
