@@ -20,6 +20,7 @@ function sameConfig(left: Readonly<AppConfig>, right: Readonly<AppConfig>): bool
     && left.sourceRadiusMOverride === right.sourceRadiusMOverride
     && left.buildCommit === right.buildCommit
     && left.debugMode === right.debugMode
+    && left.maxSimultaneousSources === right.maxSimultaneousSources
     && left.defaultLocation?.lat === right.defaultLocation?.lat
     && left.defaultLocation?.lon === right.defaultLocation?.lon;
 }

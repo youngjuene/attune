@@ -7,6 +7,7 @@ const config = {
   manifestUrl: 'https://example.test/content.json',
   audioLoadTimeoutMs: 20_000,
   progressUpdateHz: 4,
+  maxSimultaneousSources: 1,
   buildCommit: 'test',
   debugMode: true,
 } as const;

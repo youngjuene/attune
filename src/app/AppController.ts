@@ -97,6 +97,7 @@ function sameConfig(left: Readonly<AppConfig>, right: Readonly<AppConfig>): bool
     && left.sourceRadiusMOverride === right.sourceRadiusMOverride
     && left.buildCommit === right.buildCommit
     && left.debugMode === right.debugMode
+    && left.maxSimultaneousSources === right.maxSimultaneousSources
     && left.defaultLocation?.lat === right.defaultLocation?.lat
     && left.defaultLocation?.lon === right.defaultLocation?.lon;
 }
@@ -137,6 +138,7 @@ function resolveRuntimeConfig(config: Readonly<AppConfig>, state: AppState): Rea
     manifestUrl: config.manifestUrl,
     audioLoadTimeoutMs: config.audioLoadTimeoutMs,
     progressUpdateHz: config.progressUpdateHz,
+    maxSimultaneousSources: config.maxSimultaneousSources,
     sourceRadiusM,
     buildCommit: config.buildCommit,
     debugMode: config.debugMode,

@@ -14,6 +14,7 @@ describe('canonical configuration', () => {
       manifestUrl: 'http://localhost:3000/content/recordings.json',
       audioLoadTimeoutMs: 20_000,
       progressUpdateHz: 4,
+      maxSimultaneousSources: 1,
       buildCommit: 'dev',
       debugMode: true,
     });
@@ -59,6 +60,24 @@ describe('default location', () => {
     vi.stubEnv('VITE_DEFAULT_LON', '126.978');
     const { getAppConfig } = await import('../src/config');
     expect(() => getAppConfig()).toThrowError(expect.objectContaining({ code: 'CONFIGURATION_CONFLICT' }));
+  });
+});
+
+describe('simultaneous sources cap', () => {
+  test('accepts an integer cap within 1-8', async () => {
+    vi.stubEnv('VITE_MAX_SIMULTANEOUS_SOURCES', '4');
+    const { getAppConfig } = await import('../src/config');
+    expect(getAppConfig().maxSimultaneousSources).toBe(4);
+  });
+
+  test('rejects zero, fractional, and out-of-range caps', async () => {
+    for (const raw of ['0', '2.5', '9']) {
+      vi.resetModules();
+      vi.unstubAllEnvs();
+      vi.stubEnv('VITE_MAX_SIMULTANEOUS_SOURCES', raw);
+      const { getAppConfig } = await import('../src/config');
+      expect(() => getAppConfig()).toThrowError(expect.objectContaining({ code: 'CONFIGURATION_CONFLICT' }));
+    }
   });
 });
 

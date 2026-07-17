@@ -28,6 +28,7 @@ const config = (debugMode: boolean): AppConfig => ({
   manifestUrl: 'https://example.test/content.json',
   audioLoadTimeoutMs: 20_000,
   progressUpdateHz: 4,
+  maxSimultaneousSources: 1,
   buildCommit: 'integration-test',
   debugMode,
 });

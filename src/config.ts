@@ -113,6 +113,7 @@ export function getAppConfig(): Readonly<AppConfig> {
       true,
     ),
     progressUpdateHz: parseNumber(import.meta.env.VITE_PROGRESS_UPDATE_HZ, 4, 1, 10, true),
+    maxSimultaneousSources: parseNumber(import.meta.env.VITE_MAX_SIMULTANEOUS_SOURCES, 1, 1, 8, true),
     buildCommit: resolveBuildCommit(import.meta.env.VITE_BUILD_COMMIT),
     debugMode: new URLSearchParams(window.location.search).get('debug') === '1',
     ...(defaultLocation === undefined ? {} : { defaultLocation }),

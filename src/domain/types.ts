@@ -7,6 +7,7 @@ export interface AppConfig {
   sourceRadiusMOverride?: number;
   buildCommit: string;
   debugMode: boolean;
+  maxSimultaneousSources: number;
   defaultLocation?: LatLon;
 }
 
@@ -313,7 +314,13 @@ export interface AudioResourceCounts {
   activeFadeCompletionTimers: 0 | 1;
 }
 
-export interface RuntimeResourceCounts extends AudioResourceCounts {
+/**
+ * Numeric mirror of the per-unit counts for the pooled soundscape: exact sums
+ * of the units plus the coordinator's one shared listener (ADR 0003).
+ */
+export type SoundscapeResourceCounts = { [K in keyof AudioResourceCounts]: number };
+
+export interface RuntimeResourceCounts extends SoundscapeResourceCounts {
   appRoots: 0 | 1;
   renderers: 0 | 1;
   rendererCanvases: 0 | 1;
@@ -549,6 +556,54 @@ export interface SpatialAudioPlayerOptions {
    */
   sharedListener?: THREE.AudioListener;
 }
+
+export interface SoundscapeEvent {
+  generation: number;
+  recordingId: string;
+  snapshot: PlaybackSnapshot;
+}
+
+/**
+ * Coordinator over a fixed pool of SpatialAudioPlayer units sharing one
+ * injected listener (ADR 0003). Operations route by recording id; collective
+ * operations broadcast one fresh generation to every assigned unit.
+ */
+export interface SoundscapePlayer extends Disposable {
+  classifyMimeType(mimeType?: string): PlaybackEligibility;
+  resumeContext(): Promise<void>;
+  /** Assigns a free unit, or recycles the oldest active unit via its select() crossfade. */
+  activate(generation: number, recording: NormalizedRecording, position: THREE.Vector3): Promise<void>;
+  deactivate(generation: number, recordingId: string): void;
+  playById(generation: number, recordingId: string): Promise<void>;
+  pauseById(generation: number, recordingId: string, reason: 'user' | 'lifecycle'): void;
+  stopById(generation: number, recordingId: string): void;
+  pauseAll(generation: number, reason: 'user' | 'lifecycle'): void;
+  stopAll(generation: number): void;
+  setPosition(recordingId: string, position: THREE.Vector3): void;
+  setMasterGain(value: number): void;
+  setMixGain(recordingId: string, value: number): void;
+  /** Assigned recording ids in activation order, oldest first. */
+  activeRecordingIds(): readonly string[];
+  snapshotById(recordingId: string): PlaybackSnapshot;
+  subscribe(listener: (event: SoundscapeEvent) => void): Unsubscribe;
+  resourceCounts(): SoundscapeResourceCounts;
+}
+
+export interface SoundscapePlayerOptions {
+  audioLoadTimeoutMs: number;
+  progressUpdateHz: number;
+  maxSimultaneousSources: number;
+  /** Test injection: one media element per pool slot, index-matched. */
+  mediaElements?: readonly HTMLAudioElement[];
+  /** Test injection: unit factory override. */
+  createUnit?: CreateSpatialAudioPlayer;
+}
+
+export type CreateSoundscapePlayer = (
+  camera: THREE.PerspectiveCamera,
+  scene: THREE.Scene,
+  options: SoundscapePlayerOptions,
+) => SoundscapePlayer;
 
 export type CreateManifestService = (fetchImpl: typeof fetch) => ManifestService;
 export type CreateLocationInitializer = (
