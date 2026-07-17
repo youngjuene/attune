@@ -131,7 +131,7 @@ class FakeAudioPlayer implements SoundscapePlayer {
     this.commands.push(`position:${position.toArray().join(',')}`);
   }
   public setMasterGain(value: number): void { this.commands.push(`gain:${value}`); }
-  public setMixGain(recordingId: string, value: number): void { this.commands.push(`mix:${recordingId}:${value}`); }
+  public setDistanceGain(recordingId: string, value: number): void { this.commands.push(`distanceGain:${recordingId}:${value}`); }
   public activeRecordingIds(): readonly string[] {
     return this.current.recordingId === undefined ? [] : [this.current.recordingId];
   }

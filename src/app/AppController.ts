@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 
-import { createSoundscapePlayer } from '../audio';
+import { createSoundscapePlayer, distanceGain } from '../audio';
 import { createManifestService } from '../data/manifest';
 import type {
   AppAction,
@@ -808,6 +808,7 @@ class AttuneAppController implements AppController {
       }
     }
     void this.soundscape?.activate(generation, record, position);
+    this.soundscape?.setDistanceGain(recordingId, this.distanceGainFor(record));
   }
 
   private runLifecyclePauseEffect(state: AppState): void {
@@ -821,8 +822,27 @@ class AttuneAppController implements AppController {
     for (const recordingId of this.state.activeRecordingIds) {
       const record = this.findRecording(recordingId);
       const position = record === undefined ? null : this.positionFor(record);
-      if (position !== null) this.soundscape?.setPosition(recordingId, position);
+      if (record === undefined || position === null) continue;
+      this.soundscape?.setPosition(recordingId, position);
+      this.soundscape?.setDistanceGain(recordingId, this.distanceGainFor(record));
     }
+  }
+
+  private distanceGainFor(record: NormalizedRecording): number {
+    const location = this.state.location;
+    if (location === undefined) return 1;
+    const geo = geoBetween(location, record.location);
+    return distanceGain(geo.distanceM, this.collectionMaxDistanceM(location), geo.coLocated);
+  }
+
+  private collectionMaxDistanceM(location: InitializedLocation): number {
+    const configured = this.state.manifest?.map?.maxDistanceM;
+    if (configured !== undefined) return configured;
+    let maxDistanceM = 0;
+    for (const record of this.state.recordings) {
+      maxDistanceM = Math.max(maxDistanceM, geoBetween(location, record.location).distanceM);
+    }
+    return maxDistanceM;
   }
 
   private positionFor(record: NormalizedRecording): THREE.Vector3 | null {

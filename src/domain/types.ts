@@ -584,7 +584,12 @@ export interface SoundscapePlayer extends Disposable {
   stopAll(generation: number): void;
   setPosition(recordingId: string, position: THREE.Vector3): void;
   setMasterGain(value: number): void;
-  setMixGain(recordingId: string, value: number): void;
+  /**
+   * Store a source's distance gain (mixGain.ts curve); the coordinator
+   * composes it with the equal-power ensemble trim and drives each unit's
+   * setMixGain whenever membership or a stored value changes.
+   */
+  setDistanceGain(recordingId: string, value: number): void;
   /** Assigned recording ids in activation order, oldest first. */
   activeRecordingIds(): readonly string[];
   snapshotById(recordingId: string): PlaybackSnapshot;

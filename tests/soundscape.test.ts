@@ -44,15 +44,37 @@ vi.mock('three', async (importOriginal) => {
       this.state = 'running';
       return Promise.resolve();
     }
+
+    public createDynamicsCompressor(): DynamicsCompressorNode {
+      return {
+        threshold: { value: 0 },
+        knee: { value: 0 },
+        ratio: { value: 0 },
+        attack: { value: 0 },
+        release: { value: 0 },
+        disconnect: () => undefined,
+      } as unknown as DynamicsCompressorNode;
+    }
   }
 
   class FakeAudioListener extends actual.Object3D {
     public readonly context = new FakeAudioContext();
     public readonly gain = new FakeGainNode();
+    public filter: unknown = null;
 
     public constructor() {
       super();
       threeAudioHarness.listeners.push(this);
+    }
+
+    public setFilter(filter: unknown): this {
+      this.filter = filter;
+      return this;
+    }
+
+    public removeFilter(): this {
+      this.filter = null;
+      return this;
     }
   }
 
@@ -262,23 +284,40 @@ describe('SoundscapePlayer', () => {
     expect(player.snapshotById('b').state).toBe('paused');
   });
 
-  it('fans master gain out to every unit and routes mix gain by id', async () => {
+  it('composes equal-power trim with distance gain and refreshes on membership changes', async () => {
     const { player, medias } = createHarness(2);
+    const positionals = threeAudioHarness.positionals as TestPositional[];
+    const lastLinear = (positional: TestPositional): number | undefined =>
+      positional.gain.gain.commands.filter(([name]) => name === 'linear').at(-1)?.[1];
+
     await activatePlaying(player, medias[0] as MockMediaElement, 1, 'a');
+    // Solo: trim 1, so the confirm ramp lands on the 0.7 master default.
+    expect(lastLinear(positionals[0] as TestPositional)).toBeCloseTo(0.7, 4);
+
     await activatePlaying(player, medias[1] as MockMediaElement, 2, 'b');
+    // Duo: both sources retarget to master x 1/sqrt(2).
+    expect(lastLinear(positionals[0] as TestPositional)).toBeCloseTo(0.7 / Math.SQRT2, 4);
+    expect(lastLinear(positionals[1] as TestPositional)).toBeCloseTo(0.7 / Math.SQRT2, 4);
+
+    player.setDistanceGain('b', 0.5);
+    expect(lastLinear(positionals[1] as TestPositional)).toBeCloseTo((0.7 * 0.5) / Math.SQRT2, 4);
 
     player.setMasterGain(0.5);
-    const positionals = threeAudioHarness.positionals as TestPositional[];
-    for (const positional of positionals.slice(-2)) {
-      const lastRamp = positional.gain.gain.commands.filter(([name]) => name === 'linear').at(-1);
-      expect(lastRamp?.[1]).toBeCloseTo(0.5, 6);
-    }
+    expect(lastLinear(positionals[0] as TestPositional)).toBeCloseTo(0.5 / Math.SQRT2, 4);
+    expect(lastLinear(positionals[1] as TestPositional)).toBeCloseTo((0.5 * 0.5) / Math.SQRT2, 4);
 
-    player.setMixGain('b', 0.5);
-    const lastB = (positionals.at(-1) as TestPositional).gain.gain.commands
-      .filter(([name]) => name === 'linear')
-      .at(-1);
-    expect(lastB?.[1]).toBeCloseTo(0.25, 6);
+    player.deactivate(3, 'b');
+    // Trim returns to 1 for the remaining solo source.
+    expect(lastLinear(positionals[0] as TestPositional)).toBeCloseTo(0.5, 4);
+  });
+
+  it('installs a safety limiter on the shared listener', () => {
+    const { listener } = createHarness(1);
+    const filter = (listener as unknown as {
+      filter: { ratio: { value: number }; threshold: { value: number } };
+    }).filter;
+    expect(filter.ratio.value).toBe(12);
+    expect(filter.threshold.value).toBe(-6);
   });
 
   it('repositions and drives transport by id', async () => {

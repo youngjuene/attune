@@ -14,6 +14,7 @@ import type {
   SpatialAudioPlayer,
   Unsubscribe,
 } from '../domain/types';
+import { ensembleTrim } from './mixGain';
 import { createSpatialAudioPlayer } from './SpatialAudioPlayer';
 
 const EMPTY_SNAPSHOT: Readonly<PlaybackSnapshot> = Object.freeze({
@@ -29,6 +30,8 @@ interface UnitSlot {
    * are harmless: free slots are always preferred before eviction scans.
    */
   activatedAt: number;
+  /** Stored distance gain for the assigned source; composed with the trim. */
+  distanceGain: number;
 }
 
 /**
@@ -58,6 +61,15 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
 
     this.listener = new THREE.AudioListener();
     this.camera.add(this.listener);
+    // Safety limiter between the shared listener's gain and the destination
+    // (PRD v1.7 delta D-3): summed simultaneous sources must not clip.
+    const limiter = this.listener.context.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 12;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.25;
+    this.listener.setFilter(limiter);
     const createUnit = options.createUnit ?? createSpatialAudioPlayer;
 
     try {
@@ -69,7 +81,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
           sharedListener: this.listener,
           ...(mediaElement === undefined ? {} : { mediaElement }),
         });
-        const slot: UnitSlot = { unit, recordingId: undefined, activatedAt: 0 };
+        const slot: UnitSlot = { unit, recordingId: undefined, activatedAt: 0, distanceGain: 1 };
         this.slots.push(slot);
         this.unitUnsubscribes.push(unit.subscribe((event) => this.forwardUnitEvent(slot, event)));
       }
@@ -81,6 +93,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
           // Best-effort cleanup; the construction failure below is the error that matters.
         }
       }
+      this.listener.removeFilter();
       this.camera.remove(this.listener);
       this.listener.gain.disconnect();
       throw cause;
@@ -112,6 +125,8 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
       );
     slot.recordingId = recording.id;
     slot.activatedAt = ++this.activationSequence;
+    slot.distanceGain = 1;
+    this.recomputeMixGains();
     return slot.unit.select(generation, recording, position);
   }
 
@@ -123,6 +138,8 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     }
     slot.unit.stop(generation);
     slot.recordingId = undefined;
+    slot.distanceGain = 1;
+    this.recomputeMixGains();
   }
 
   public playById(generation: number, recordingId: string): Promise<void> {
@@ -166,9 +183,26 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
     }
   }
 
-  public setMixGain(recordingId: string, value: number): void {
+  public setDistanceGain(recordingId: string, value: number): void {
     this.assertLive();
-    this.slotFor(recordingId)?.unit.setMixGain(value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    const slot = this.slotFor(recordingId);
+    if (slot === undefined) {
+      return;
+    }
+    slot.distanceGain = Math.min(1, Math.max(0, value));
+    this.recomputeMixGains();
+  }
+
+  /** Compose stored distance gains with the equal-power trim for every assigned unit. */
+  private recomputeMixGains(): void {
+    const assigned = this.assignedSlots();
+    const trim = ensembleTrim(assigned.length);
+    for (const slot of assigned) {
+      slot.unit.setMixGain(slot.distanceGain * trim);
+    }
   }
 
   public activeRecordingIds(): readonly string[] {
@@ -239,6 +273,7 @@ class SoundscapePlayerImplementation implements SoundscapePlayer {
       slot.unit.dispose();
       slot.recordingId = undefined;
     }
+    this.listener.removeFilter();
     this.camera.remove(this.listener);
     this.listener.gain.disconnect();
     this.subscribers.clear();
