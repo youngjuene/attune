@@ -103,6 +103,7 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
   private readonly mediaHandlers = new Map<MediaEventName, EventListener>();
   private readonly audioLoadTimeoutMs: number;
   private readonly progressIntervalMs: number;
+  private readonly ownsListener: boolean;
 
   private disposed = false;
   private generation = 0;
@@ -116,6 +117,7 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
   private playbackConfirmed = false;
   private audioGestureRequired = false;
   private masterGain = 0.7;
+  private mixGain = 1;
   private authoritativeDuration: number | undefined;
   private currentSnapshot: PlaybackSnapshot = { state: 'empty', currentTimeSec: 0 };
   private activeGainRamp: GainRamp | undefined;
@@ -144,6 +146,7 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
 
     this.audioLoadTimeoutMs = options.audioLoadTimeoutMs;
     this.progressIntervalMs = 1_000 / options.progressUpdateHz;
+    this.ownsListener = options.sharedListener === undefined;
 
     let listener: THREE.AudioListener | undefined;
     let positional: THREE.PositionalAudio | undefined;
@@ -155,11 +158,13 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
       media.preload = 'metadata';
       media.crossOrigin = 'anonymous';
 
-      listener = new THREE.AudioListener();
+      listener = options.sharedListener ?? new THREE.AudioListener();
       positional = new THREE.PositionalAudio(listener);
       sourceObject = new THREE.Object3D();
 
-      this.camera.add(listener);
+      if (this.ownsListener) {
+        this.camera.add(listener);
+      }
       sourceObject.add(positional);
       this.scene.add(sourceObject);
 
@@ -177,7 +182,7 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
         positional.disconnect();
         positional.gain.disconnect();
       }
-      if (listener !== undefined) {
+      if (listener !== undefined && this.ownsListener) {
         this.camera.remove(listener);
         listener.gain.disconnect();
       }
@@ -402,28 +407,17 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
     if (!Number.isFinite(value)) {
       return;
     }
-
-    const ramp = this.activeGainRamp;
-    const now = this.context.currentTime;
-    const heldGain = this.heldGain(now);
     this.masterGain = clamp(value, 0, 1);
-    this.positional.gain.gain.cancelScheduledValues(now);
-    this.positional.gain.gain.setValueAtTime(heldGain, now);
-    this.activeGainRamp = undefined;
-    this.settledGain = heldGain;
+    this.retargetCompositeGain();
+  }
 
-    if (ramp !== undefined && ramp.endContextTime > now) {
-      const destination = ramp.to === 0 ? 0 : this.effectiveGain();
-      this.scheduleGainRamp(heldGain, destination, ramp.endContextTime - now);
+  public setMixGain(value: number): void {
+    this.assertLive();
+    if (!Number.isFinite(value)) {
       return;
     }
-
-    if (this.desiredPlaying && this.playbackConfirmed) {
-      this.scheduleGainRamp(heldGain, this.effectiveGain(), VOLUME_FADE_SECONDS);
-    } else {
-      this.positional.gain.gain.setValueAtTime(0, this.context.currentTime);
-      this.settledGain = 0;
-    }
+    this.mixGain = clamp(value, 0, 1);
+    this.retargetCompositeGain();
   }
 
   public snapshot(): PlaybackSnapshot {
@@ -450,7 +444,7 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
       mediaElements: 1,
       mediaElementSourceNodes: 1,
       audioSourceObjects: 1,
-      listeners: 1,
+      listeners: this.ownsListener ? 1 : 0,
       positionalAudioObjects: 1,
       panners: 1,
       registeredMediaHandlers: this.mediaHandlers.size === 10 ? 10 : 0,
@@ -481,10 +475,14 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
 
     this.sourceObject.remove(this.positional);
     this.scene.remove(this.sourceObject);
-    this.camera.remove(this.listener);
+    if (this.ownsListener) {
+      this.camera.remove(this.listener);
+    }
     this.positional.disconnect();
     this.positional.gain.disconnect();
-    this.listener.gain.disconnect();
+    if (this.ownsListener) {
+      this.listener.gain.disconnect();
+    }
     this.subscribers.clear();
     this.targetRecording = undefined;
     this.targetPosition = undefined;
@@ -707,9 +705,38 @@ class SpatialAudioPlayerImplementation implements SpatialAudioPlayer {
     void cause;
   }
 
+  /**
+   * Reschedule the composite gain from the logically held value after any gain
+   * input (master or mix) changes, preserving an in-flight fade's destination
+   * intent and completion time exactly as PRD gain-automation invariants
+   * require.
+   */
+  private retargetCompositeGain(): void {
+    const ramp = this.activeGainRamp;
+    const now = this.context.currentTime;
+    const heldGain = this.heldGain(now);
+    this.positional.gain.gain.cancelScheduledValues(now);
+    this.positional.gain.gain.setValueAtTime(heldGain, now);
+    this.activeGainRamp = undefined;
+    this.settledGain = heldGain;
+
+    if (ramp !== undefined && ramp.endContextTime > now) {
+      const destination = ramp.to === 0 ? 0 : this.effectiveGain();
+      this.scheduleGainRamp(heldGain, destination, ramp.endContextTime - now);
+      return;
+    }
+
+    if (this.desiredPlaying && this.playbackConfirmed) {
+      this.scheduleGainRamp(heldGain, this.effectiveGain(), VOLUME_FADE_SECONDS);
+    } else {
+      this.positional.gain.gain.setValueAtTime(0, this.context.currentTime);
+      this.settledGain = 0;
+    }
+  }
+
   private effectiveGain(): number {
     const gainDb = clamp(this.targetRecording?.gainDb ?? 0, -24, 6);
-    return clamp(clamp(this.masterGain, 0, 1) * 10 ** (gainDb / 20), 0, 1);
+    return clamp(clamp(this.masterGain, 0, 1) * this.mixGain * 10 ** (gainDb / 20), 0, 1);
   }
 
   private heldGain(now = this.context.currentTime): number {

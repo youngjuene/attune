@@ -519,6 +519,13 @@ export interface SpatialAudioPlayer extends Disposable {
   stop(generation: number): void;
   setPosition(position: THREE.Vector3): void;
   setMasterGain(value: number): void;
+  /**
+   * Externally computed mix multiplier in [0, 1] (distance attenuation x
+   * ensemble trim; ADR 0003), default 1, composed with master gain and the
+   * record's gainDb trim under the same held-ramp retargeting semantics as a
+   * master-volume change.
+   */
+  setMixGain(value: number): void;
   snapshot(): PlaybackSnapshot;
   subscribe(listener: (event: AudioPlaybackEvent) => void): Unsubscribe;
   resourceCounts(): AudioResourceCounts;
@@ -535,6 +542,12 @@ export interface SpatialAudioPlayerOptions {
   audioLoadTimeoutMs: number;
   progressUpdateHz: number;
   mediaElement?: HTMLAudioElement;
+  /**
+   * Coordinator-owned listener shared by pooled units (ADR 0003). When supplied
+   * the player neither attaches it to the camera nor disconnects it on dispose,
+   * and reports `listeners: 0`.
+   */
+  sharedListener?: THREE.AudioListener;
 }
 
 export type CreateManifestService = (fetchImpl: typeof fetch) => ManifestService;

@@ -716,4 +716,100 @@ describe('SpatialAudioPlayer', () => {
     expect(media.loadCalls).toBe(loadsBeforeDispose + 1);
     expect(() => player.snapshot()).toThrowError('APP_DISPOSED');
   });
+
+  it('supports an injected shared listener without owning, attaching, or disconnecting it', async () => {
+    const media = new MockMediaElement();
+    const camera = new THREE.PerspectiveCamera();
+    const scene = new THREE.Scene();
+    const shared = new THREE.AudioListener();
+    const sharedGain = (shared as unknown as { gain: { disconnectCalls: number } }).gain;
+    const player = createSpatialAudioPlayer(camera, scene, {
+      audioLoadTimeoutMs: 20_000,
+      progressUpdateHz: 4,
+      mediaElement: media.asElement(),
+      sharedListener: shared,
+    });
+
+    expect(camera.children).toHaveLength(0);
+    expect(scene.children).toHaveLength(1);
+    expect(player.resourceCounts()).toEqual({
+      mediaElements: 1,
+      mediaElementSourceNodes: 1,
+      audioSourceObjects: 1,
+      listeners: 0,
+      positionalAudioObjects: 1,
+      panners: 1,
+      registeredMediaHandlers: 10,
+      activeLoadWatchdogs: 0,
+      activeFadeCompletionTimers: 0,
+    });
+
+    const selection = player.select(1, record('a'), new THREE.Vector3());
+    media.playAttempts[0]?.resolve();
+    await selection;
+    expect(player.snapshot().state).toBe('playing');
+
+    player.dispose();
+    expect(sharedGain.disconnectCalls).toBe(0);
+    expect(camera.children).toHaveLength(0);
+    expect(scene.children).toHaveLength(0);
+  });
+
+  it('lets two units share one listener and survive sibling disposal', async () => {
+    const camera = new THREE.PerspectiveCamera();
+    const scene = new THREE.Scene();
+    const shared = new THREE.AudioListener();
+    const sharedGain = (shared as unknown as { gain: { disconnectCalls: number } }).gain;
+    const mediaA = new MockMediaElement();
+    const mediaB = new MockMediaElement();
+    const base = { audioLoadTimeoutMs: 20_000, progressUpdateHz: 4, sharedListener: shared };
+    const unitA = createSpatialAudioPlayer(camera, scene, { ...base, mediaElement: mediaA.asElement() });
+    const unitB = createSpatialAudioPlayer(camera, scene, { ...base, mediaElement: mediaB.asElement() });
+
+    unitA.dispose();
+    const selection = unitB.select(1, record('b'), new THREE.Vector3());
+    mediaB.playAttempts[0]?.resolve();
+    await selection;
+    expect(unitB.snapshot().state).toBe('playing');
+
+    unitB.dispose();
+    expect(sharedGain.disconnectCalls).toBe(0);
+    expect(scene.children).toHaveLength(0);
+  });
+
+  it('composes mix gain into the confirm ramp, clamps it, and ignores non-finite values', async () => {
+    const { player, media, positional } = createHarness();
+    player.setMixGain(0.5);
+    const selection = player.select(1, record('a'), new THREE.Vector3());
+    media.playAttempts[0]?.resolve();
+    await selection;
+    const commands = positional.gain.gain.commands;
+    expect(commands.filter(([name]) => name === 'linear').at(-1)?.[1]).toBeCloseTo(0.35, 6);
+
+    const before = commands.length;
+    player.setMixGain(Number.NaN);
+    expect(commands.length).toBe(before);
+
+    player.setMixGain(7);
+    expect(commands.filter(([name]) => name === 'linear').at(-1)?.[1]).toBeCloseTo(0.7, 6);
+
+    player.setMixGain(-2);
+    expect(commands.filter(([name]) => name === 'linear').at(-1)?.[1]).toBe(0);
+  });
+
+  it('preserves fade completion time when mix gain changes mid-selection-fade', async () => {
+    const { player, media, context, positional } = createHarness();
+    const selection = player.select(1, record('a'), new THREE.Vector3());
+    media.playAttempts[0]?.resolve();
+    await selection;
+    context.currentTime = 0.075;
+
+    player.setMixGain(0.2);
+    const commands = positional.gain.gain.commands;
+    const heldSet = commands.filter(([name]) => name === 'set').at(-1);
+    const replacementRamp = commands.filter(([name]) => name === 'linear').at(-1);
+    expect(heldSet?.[1]).toBeCloseTo(0.35, 6);
+    expect(replacementRamp?.[1]).toBeCloseTo(0.14, 6);
+    expect(replacementRamp?.[2]).toBeCloseTo(0.15, 6);
+  });
 });

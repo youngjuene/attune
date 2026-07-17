@@ -123,6 +123,7 @@ class FakeAudioPlayer implements SpatialAudioPlayer {
     this.commands.push(`position:${position.toArray().join(',')}`);
   }
   public setMasterGain(value: number): void { this.commands.push(`gain:${value}`); }
+  public setMixGain(value: number): void { this.commands.push(`mix:${value}`); }
   public snapshot(): PlaybackSnapshot { return this.current; }
   public subscribe(listener: (event: AudioPlaybackEvent) => void): Unsubscribe {
     this.listeners.add(listener); return () => this.listeners.delete(listener);
