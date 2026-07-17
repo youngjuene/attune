@@ -4,8 +4,6 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createAppController, getGlobalResourceCounts, initializeApp } from '../src/app/AppController';
 import type {
   AppConfig,
-  AudioPlaybackEvent,
-  AudioResourceCounts,
   InitializedLocation,
   LocationInitializer,
   ManifestLoadResult,
@@ -16,7 +14,9 @@ import type {
   PlaybackSnapshot,
   PointerTargetKind,
   RuntimeResourceCounts,
-  SpatialAudioPlayer,
+  SoundscapeEvent,
+  SoundscapePlayer,
+  SoundscapeResourceCounts,
   Unsubscribe,
   XRInteractionSurface,
   XRRuntimeEvent,
@@ -95,17 +95,17 @@ class FakeMapPanel implements MapPanel {
   public dispose(): void { this.disposed = true; }
 }
 
-class FakeAudioPlayer implements SpatialAudioPlayer {
+class FakeAudioPlayer implements SoundscapePlayer {
   public readonly commands: string[] = [];
   public readonly selectedPositions: THREE.Vector3[] = [];
   public readonly appliedPositions: THREE.Vector3[] = [];
-  private readonly listeners = new Set<(event: AudioPlaybackEvent) => void>();
+  private readonly listeners = new Set<(event: SoundscapeEvent) => void>();
   private current: PlaybackSnapshot = { state: 'empty', currentTimeSec: 0 };
   public watchdog: 0 | 1 = 0;
   public fade: 0 | 1 = 0;
   public classifyMimeType(): PlaybackEligibility { return 'eligible'; }
   public resumeContext(): Promise<void> { this.commands.push('resume'); return Promise.resolve(); }
-  public select(
+  public activate(
     generation: number,
     recording: ManifestLoadResult['records'][number],
     position: THREE.Vector3,
@@ -113,23 +113,33 @@ class FakeAudioPlayer implements SpatialAudioPlayer {
     this.commands.push(`select:${generation}:${recording.id}`);
     this.selectedPositions.push(position.clone());
     this.current = { state: 'loading', recordingId: recording.id, currentTimeSec: 0 };
-    for (const listener of this.listeners) listener({ generation, snapshot: this.current });
+    for (const listener of this.listeners) {
+      listener({ generation, recordingId: recording.id, snapshot: this.current });
+    }
     return Promise.resolve();
   }
-  public play(generation: number): Promise<void> { this.commands.push(`play:${generation}`); return Promise.resolve(); }
-  public pause(generation: number, reason: 'user' | 'lifecycle'): void { this.commands.push(`pause:${generation}:${reason}`); }
-  public stop(generation: number): void { this.commands.push(`stop:${generation}`); }
-  public setPosition(position: THREE.Vector3): void {
+  public deactivate(generation: number, recordingId: string): void {
+    this.commands.push(`deactivate:${generation}:${recordingId}`);
+  }
+  public playById(generation: number, _recordingId: string): Promise<void> { this.commands.push(`play:${generation}`); return Promise.resolve(); }
+  public pauseById(generation: number, _recordingId: string, reason: 'user' | 'lifecycle'): void { this.commands.push(`pause:${generation}:${reason}`); }
+  public stopById(generation: number, _recordingId: string): void { this.commands.push(`stop:${generation}`); }
+  public pauseAll(generation: number, reason: 'user' | 'lifecycle'): void { this.commands.push(`pause:${generation}:${reason}`); }
+  public stopAll(generation: number): void { this.commands.push(`stopAll:${generation}`); }
+  public setPosition(_recordingId: string, position: THREE.Vector3): void {
     this.appliedPositions.push(position.clone());
     this.commands.push(`position:${position.toArray().join(',')}`);
   }
   public setMasterGain(value: number): void { this.commands.push(`gain:${value}`); }
-  public setMixGain(value: number): void { this.commands.push(`mix:${value}`); }
-  public snapshot(): PlaybackSnapshot { return this.current; }
-  public subscribe(listener: (event: AudioPlaybackEvent) => void): Unsubscribe {
+  public setMixGain(recordingId: string, value: number): void { this.commands.push(`mix:${recordingId}:${value}`); }
+  public activeRecordingIds(): readonly string[] {
+    return this.current.recordingId === undefined ? [] : [this.current.recordingId];
+  }
+  public snapshotById(): PlaybackSnapshot { return this.current; }
+  public subscribe(listener: (event: SoundscapeEvent) => void): Unsubscribe {
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  public resourceCounts(): AudioResourceCounts {
+  public resourceCounts(): SoundscapeResourceCounts {
     return {
       mediaElements: 1, mediaElementSourceNodes: 1, audioSourceObjects: 1, listeners: 1,
       positionalAudioObjects: 1, panners: 1, registeredMediaHandlers: 10,
@@ -226,7 +236,7 @@ function dependencies(options: {
       locationInitializer: options.location,
       createXRSessionController: () => xr,
       createMapPanel: () => map,
-      createSpatialAudioPlayer: () => audio,
+      createSoundscapePlayer: () => audio,
     },
   };
 }

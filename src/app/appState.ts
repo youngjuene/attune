@@ -14,12 +14,20 @@ export interface AppReducerContext {
   readonly config: Readonly<AppConfig>;
   readonly locationGeneration: number;
   readonly selectionGeneration: number;
+  /** Latest generation minted per recording id; PLAYBACK_SNAPSHOT accepts only exact matches. */
+  readonly selectionGenerationsById: Readonly<Record<string, number>>;
   readonly sessionGeneration: number;
   readonly wallClockMs: number;
 }
 
 const EMPTY_ELIGIBILITY: Readonly<Record<string, PlaybackEligibility>> = Object.freeze(
   Object.create(null) as Record<string, PlaybackEligibility>,
+);
+
+const EMPTY_ACTIVE_IDS: readonly string[] = Object.freeze([]);
+
+const EMPTY_PLAYBACK_BY_ID: Readonly<Record<string, PlaybackSnapshot>> = Object.freeze(
+  Object.create(null) as Record<string, PlaybackSnapshot>,
 );
 
 export function createInitialState(config: Readonly<AppConfig>): AppState {
@@ -38,6 +46,8 @@ export function createInitialState(config: Readonly<AppConfig>): AppState {
     controllerAvailable: false,
     panelVisible: true,
     playback: { state: 'empty', currentTimeSec: 0 },
+    activeRecordingIds: EMPTY_ACTIVE_IDS,
+    playbackById: EMPTY_PLAYBACK_BY_ID,
     masterGain: 0.7,
     audioGestureRequired: false,
     buildCommit: config.buildCommit,
@@ -87,6 +97,25 @@ function lifecyclePaused(playback: PlaybackSnapshot, selectedRecordingId?: strin
     state: 'paused',
     recordingId: selectedRecordingId,
   };
+}
+
+/** Mirror of lifecyclePaused for the per-id map: every assigned source shows paused. */
+function pausedPlaybackById(
+  playbackById: Readonly<Record<string, PlaybackSnapshot>>,
+): Readonly<Record<string, PlaybackSnapshot>> {
+  const next: Record<string, PlaybackSnapshot> = {};
+  for (const [id, snapshot] of Object.entries(playbackById)) {
+    next[id] = { ...snapshot, state: 'paused' };
+  }
+  return next;
+}
+
+function withoutPlaybackEntry(
+  playbackById: Readonly<Record<string, PlaybackSnapshot>>,
+  recordingId: string,
+): Readonly<Record<string, PlaybackSnapshot>> {
+  const { [recordingId]: _removed, ...rest } = playbackById;
+  return rest;
 }
 
 function isLivePhase(state: AppState): boolean {
@@ -141,7 +170,10 @@ export function reduceAppState(
         ...cleared,
         phase: 'locationPending',
         ...(state.debugMode
-          ? { playback: lifecyclePaused(state.playback, state.selectedRecordingId) }
+          ? {
+              playback: lifecyclePaused(state.playback, state.selectedRecordingId),
+              playbackById: pausedPlaybackById(state.playbackById),
+            }
           : {}),
       };
     }
@@ -160,6 +192,7 @@ export function reduceAppState(
           location: action.location,
           calibration: canonicalDebugFrame(context.wallClockMs),
           playback: lifecyclePaused(state.playback, state.selectedRecordingId),
+          playbackById: pausedPlaybackById(state.playbackById),
         };
       }
       return { ...cleared, phase: 'locationReady', location: action.location };
@@ -223,6 +256,7 @@ export function reduceAppState(
         ...withoutCalibration(state),
         phase: 'calibrating',
         playback: lifecyclePaused(state.playback, state.selectedRecordingId),
+        playbackById: pausedPlaybackById(state.playbackById),
         error: { code: action.code, recoverable: true, calibrationReason: action.reason },
       };
     }
@@ -238,30 +272,76 @@ export function reduceAppState(
         || !Object.hasOwn(state.recordingEligibility, action.recordingId)
         || state.recordingEligibility[action.recordingId] === 'unsupported'
       ) return state;
-      if (
-        state.selectedRecordingId === action.recordingId
-        && (state.playback.state === 'loading' || state.playback.state === 'playing')
-      ) return state;
-      if (state.selectedRecordingId === action.recordingId && state.playback.state !== 'error') return state;
+      const cap = context.config.maxSimultaneousSources;
+      const isActive = state.activeRecordingIds.includes(action.recordingId);
+      if (cap > 1 && isActive) {
+        // v1.7 toggle-off (PRD delta D-4). At cap 1 the v1.6 same-focus
+        // semantics below apply unchanged (D-2 identity).
+        return {
+          ...withoutError(state),
+          selectedRecordingId: action.recordingId,
+          activeRecordingIds: state.activeRecordingIds.filter((id) => id !== action.recordingId),
+          playbackById: withoutPlaybackEntry(state.playbackById, action.recordingId),
+          playback: { state: 'stopped', recordingId: action.recordingId, currentTimeSec: 0 },
+        };
+      }
+      const focusActive = state.selectedRecordingId === action.recordingId && isActive;
+      if (focusActive && (state.playback.state === 'loading' || state.playback.state === 'playing')) {
+        return state;
+      }
+      if (focusActive && state.playback.state !== 'error') return state;
       const playback: PlaybackSnapshot = {
         state: 'loading',
         recordingId: action.recordingId,
         currentTimeSec: 0,
       };
+      let activeRecordingIds = isActive
+        ? state.activeRecordingIds
+        : [...state.activeRecordingIds, action.recordingId];
+      let playbackById: Readonly<Record<string, PlaybackSnapshot>> = {
+        ...state.playbackById,
+        [action.recordingId]: playback,
+      };
+      if (activeRecordingIds.length > cap) {
+        const evicted = activeRecordingIds[0] as string;
+        activeRecordingIds = activeRecordingIds.slice(1);
+        playbackById = withoutPlaybackEntry(playbackById, evicted);
+      }
       return {
         ...withoutError(state),
         selectedRecordingId: action.recordingId,
         playback,
+        activeRecordingIds,
+        playbackById,
       };
     }
-    case 'PLAY':
-      return state.phase === 'ready' && state.selectedRecordingId !== undefined
-        && state.playback.state === 'error'
-        ? {
-            ...withoutError(state),
-            playback: { state: 'loading', recordingId: state.selectedRecordingId, currentTimeSec: 0 },
-          }
-        : state;
+    case 'PLAY': {
+      if (state.phase !== 'ready' || state.selectedRecordingId === undefined) return state;
+      const focusId = state.selectedRecordingId;
+      const cap = context.config.maxSimultaneousSources;
+      let activeRecordingIds = state.activeRecordingIds;
+      let playbackById = state.playbackById;
+      if (!activeRecordingIds.includes(focusId)) {
+        // Play re-activates a focus that was toggled out of the soundscape.
+        activeRecordingIds = [...activeRecordingIds, focusId];
+        if (activeRecordingIds.length > cap) {
+          const evicted = activeRecordingIds[0] as string;
+          activeRecordingIds = activeRecordingIds.slice(1);
+          playbackById = withoutPlaybackEntry(playbackById, evicted);
+        }
+      }
+      if (state.playback.state === 'error') {
+        const playback: PlaybackSnapshot = { state: 'loading', recordingId: focusId, currentTimeSec: 0 };
+        return {
+          ...withoutError(state),
+          playback,
+          activeRecordingIds,
+          playbackById: { ...playbackById, [focusId]: playback },
+        };
+      }
+      if (activeRecordingIds === state.activeRecordingIds) return state;
+      return { ...state, activeRecordingIds, playbackById };
+    }
     case 'PAUSE':
     case 'STOP':
       return state;
@@ -290,6 +370,7 @@ export function reduceAppState(
             ...withoutCalibration(state),
             phase: 'calibrating',
             playback: lifecyclePaused(state.playback, state.selectedRecordingId),
+            playbackById: pausedPlaybackById(state.playbackById),
           }
         : state;
     case 'EXIT_XR':
@@ -305,17 +386,24 @@ export function reduceAppState(
             sessionActive: false,
             controllerAvailable: false,
             playback: lifecyclePaused(state.playback, state.selectedRecordingId),
+            playbackById: pausedPlaybackById(state.playbackById),
           }
         : state;
     case 'PLAYBACK_SNAPSHOT': {
-      if (!isLivePhase(state) || action.generation !== context.selectionGeneration) return state;
-      if (
-        action.snapshot.recordingId !== undefined
-        && action.snapshot.recordingId !== state.selectedRecordingId
-      ) return state;
-      let next = { ...state, playback: { ...action.snapshot } };
+      // Per-id generation guard (ADR 0003): each source's events are validated
+      // against the latest generation minted for that recording, so concurrent
+      // sources cannot silence one another's progress.
+      if (!isLivePhase(state)) return state;
+      if (action.generation !== context.selectionGenerationsById[action.recordingId]) return state;
+      if (!state.activeRecordingIds.includes(action.recordingId)) return state;
+      const isFocus = action.recordingId === state.selectedRecordingId;
+      let next: AppState = {
+        ...state,
+        playbackById: { ...state.playbackById, [action.recordingId]: { ...action.snapshot } },
+        ...(isFocus ? { playback: { ...action.snapshot } } : {}),
+      };
       if (action.snapshot.state === 'playing') next = { ...next, audioGestureRequired: false };
-      if (action.snapshot.state === 'error' && action.snapshot.errorCode !== undefined) {
+      if (isFocus && action.snapshot.state === 'error' && action.snapshot.errorCode !== undefined) {
         next = { ...next, error: { code: action.snapshot.errorCode, recoverable: true } };
       }
       if (

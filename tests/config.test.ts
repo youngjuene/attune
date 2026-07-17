@@ -9,6 +9,11 @@ afterEach(() => {
 describe('canonical configuration', () => {
   test('uses fixed defaults and the exact first debug query value', async () => {
     window.history.replaceState({}, '', '/?debug=1&debug=0');
+    // Vite loads .env.local in every mode (including test); blank-stub the
+    // developer-local knobs so this canonical-defaults test stays hermetic.
+    vi.stubEnv('VITE_MAX_SIMULTANEOUS_SOURCES', '');
+    vi.stubEnv('VITE_DEFAULT_LAT', '');
+    vi.stubEnv('VITE_DEFAULT_LON', '');
     const { getAppConfig } = await import('../src/config');
     expect(getAppConfig()).toMatchObject({
       manifestUrl: 'http://localhost:3000/content/recordings.json',

@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 
-import { createSpatialAudioPlayer } from '../audio';
+import { createSoundscapePlayer } from '../audio';
 import { createManifestService } from '../data/manifest';
 import type {
   AppAction,
@@ -11,7 +11,7 @@ import type {
   CreateLocationInitializer,
   CreateManifestService,
   CreateMapPanel,
-  CreateSpatialAudioPlayer,
+  CreateSoundscapePlayer,
   CreateXRSessionController,
   GetGlobalResourceCounts,
   InitializedLocation,
@@ -24,7 +24,7 @@ import type {
   PlaybackEligibility,
   RuntimeConfig,
   RuntimeResourceCounts,
-  SpatialAudioPlayer,
+  SoundscapePlayer,
   Unsubscribe,
   XRRuntimeEvent,
   XRSessionController,
@@ -87,7 +87,7 @@ export interface AppControllerDependencies {
   readonly createLocationInitializer?: CreateLocationInitializer;
   readonly createXRSessionController?: CreateXRSessionController;
   readonly createMapPanel?: CreateMapPanel;
-  readonly createSpatialAudioPlayer?: CreateSpatialAudioPlayer;
+  readonly createSoundscapePlayer?: CreateSoundscapePlayer;
 }
 
 function sameConfig(left: Readonly<AppConfig>, right: Readonly<AppConfig>): boolean {
@@ -118,8 +118,19 @@ function formatBearing(bearingDeg: number | null, cardinal: string | null): stri
 
 function mapMarkerState(state: AppState, recordingId: string, enabled: boolean): MapMarkerState {
   if (!enabled) return 'disabled';
-  if (state.selectedRecordingId !== recordingId) return 'default';
-  switch (state.playback.state) {
+  if (state.selectedRecordingId === recordingId) {
+    switch (state.playback.state) {
+      case 'loading': return 'loading';
+      case 'playing': return 'playing';
+      case 'error': return 'failed';
+      default: return 'selected';
+    }
+  }
+  // Non-focus members of the soundscape surface their own per-id state
+  // (cap 1 keeps this branch on 'default': evicted entries are removed).
+  const snapshot = state.playbackById[recordingId];
+  if (snapshot === undefined) return 'default';
+  switch (snapshot.state) {
     case 'loading': return 'loading';
     case 'playing': return 'playing';
     case 'error': return 'failed';
@@ -164,7 +175,7 @@ class AttuneAppController implements AppController {
   private runtimeConfig: Readonly<RuntimeConfig> | null = null;
   private xrController: XRSessionController | null = null;
   private mapPanel: MapPanel | null = null;
-  private audioPlayer: SpatialAudioPlayer | null = null;
+  private soundscape: SoundscapePlayer | null = null;
   private abortController: AbortController | null = null;
   private xrUnsubscribe: Unsubscribe | null = null;
   private audioUnsubscribe: Unsubscribe | null = null;
@@ -175,6 +186,9 @@ class AttuneAppController implements AppController {
   private visibilityHandlerInstalled = false;
   private locationGeneration = 0;
   private selectionGeneration = 0;
+  /** Latest generation minted per recording id (ADR 0003 per-source event validation). */
+  private readonly selectionGenerationsById: Record<string, number> =
+    Object.create(null) as Record<string, number>;
   private sessionGeneration = 0;
   private pendingLocation: Promise<void> | null = null;
   private pendingCalibration = false;
@@ -252,7 +266,7 @@ class AttuneAppController implements AppController {
   public resourceCounts(): RuntimeResourceCounts {
     if (this.lifecycle === 'disposed') return { ...ZERO_COUNTS };
     const xr = this.xrController?.resourceCounts();
-    const audio = this.audioPlayer?.resourceCounts();
+    const audio = this.soundscape?.resourceCounts();
     const mapLive = this.mapPanel !== null;
     return {
       ...ZERO_COUNTS,
@@ -392,12 +406,13 @@ class AttuneAppController implements AppController {
         return;
       }
       try {
-        this.audioPlayer = (this.dependencies.createSpatialAudioPlayer ?? createSpatialAudioPlayer)(
+        this.soundscape = (this.dependencies.createSoundscapePlayer ?? createSoundscapePlayer)(
           camera,
           scene,
           {
             audioLoadTimeoutMs: this.runtimeConfig.audioLoadTimeoutMs,
             progressUpdateHz: this.runtimeConfig.progressUpdateHz,
+            maxSimultaneousSources: this.runtimeConfig.maxSimultaneousSources,
           },
         );
       } catch (cause) {
@@ -414,7 +429,7 @@ class AttuneAppController implements AppController {
       const eligibility = Object.create(null) as Record<string, PlaybackEligibility>;
       let unsupportedRecordCount = 0;
       for (const record of manifest.value.records) {
-        const result = this.audioPlayer.classifyMimeType(record.mimeType);
+        const result = this.soundscape.classifyMimeType(record.mimeType);
         eligibility[record.id] = result;
         if (result === 'unsupported') unsupportedRecordCount += 1;
       }
@@ -426,8 +441,13 @@ class AttuneAppController implements AppController {
       }
 
       this.xrUnsubscribe = this.xrController.subscribe((event) => this.handleXrEvent(event));
-      this.audioUnsubscribe = this.audioPlayer.subscribe((event) => {
-        this.dispatch({ type: 'PLAYBACK_SNAPSHOT', generation: event.generation, snapshot: event.snapshot });
+      this.audioUnsubscribe = this.soundscape.subscribe((event) => {
+        this.dispatch({
+          type: 'PLAYBACK_SNAPSHOT',
+          generation: event.generation,
+          recordingId: event.recordingId,
+          snapshot: event.snapshot,
+        });
       });
       this.documentRef.addEventListener('visibilitychange', this.onVisibilityChange);
       this.visibilityHandlerInstalled = true;
@@ -462,8 +482,8 @@ class AttuneAppController implements AppController {
     if (
       action.type === 'PLAYBACK_SNAPSHOT'
       && action.generation === this.selectionGeneration
-      && action.snapshot.recordingId !== undefined
-      && action.snapshot.recordingId !== this.state.selectedRecordingId
+      && action.recordingId !== this.state.selectedRecordingId
+      && !this.state.activeRecordingIds.includes(action.recordingId)
     ) {
       console.error('INTERNAL_LISTENER_ERROR');
       return;
@@ -485,7 +505,9 @@ class AttuneAppController implements AppController {
     ) {
       ++this.locationGeneration;
       this.pendingLocation = null;
-      if (state.debugMode && state.phase === 'ready') ++this.selectionGeneration;
+      if (state.debugMode && state.phase === 'ready') {
+        this.stampActiveGenerations(state, ++this.selectionGeneration);
+      }
       return;
     }
     if (
@@ -494,7 +516,7 @@ class AttuneAppController implements AppController {
       && state.debugMode
       && !state.sessionActive
     ) {
-      ++this.selectionGeneration;
+      this.stampActiveGenerations(state, ++this.selectionGeneration);
       return;
     }
     if (
@@ -503,11 +525,11 @@ class AttuneAppController implements AppController {
       && state.sessionActive
       && ['ready', 'calibrating'].includes(state.phase)
     ) {
-      ++this.selectionGeneration;
+      this.stampActiveGenerations(state, ++this.selectionGeneration);
       return;
     }
     if (action.type === 'RECALIBRATE' && !state.debugMode && state.phase === 'ready' && state.sessionActive) {
-      ++this.selectionGeneration;
+      this.stampActiveGenerations(state, ++this.selectionGeneration);
       return;
     }
     if (
@@ -515,8 +537,20 @@ class AttuneAppController implements AppController {
       && action.sessionGeneration === this.sessionGeneration
       && ['enteringXR', 'calibrating', 'ready', 'endingXR'].includes(state.phase)
     ) {
-      ++this.selectionGeneration;
+      this.stampActiveGenerations(state, ++this.selectionGeneration);
     }
+  }
+
+  private stampActiveGenerations(state: AppState, generation: number): void {
+    for (const recordingId of state.activeRecordingIds) {
+      this.selectionGenerationsById[recordingId] = generation;
+    }
+  }
+
+  private mintSelectionGeneration(recordingId: string): number {
+    const generation = ++this.selectionGeneration;
+    this.selectionGenerationsById[recordingId] = generation;
+    return generation;
   }
 
   private runEffect(action: AppAction, before: AppState, after: AppState): void {
@@ -530,7 +564,7 @@ class AttuneAppController implements AppController {
       case 'LOCATION_RESOLVED':
         if (after !== before && after.debugMode) {
           this.runLifecyclePauseEffect(before);
-          this.repositionSelectedSource();
+          this.repositionActiveSources();
         }
         break;
       case 'XR_START_REQUESTED':
@@ -541,7 +575,7 @@ class AttuneAppController implements AppController {
         break;
       case 'CALIBRATION_CONFIRMED':
         this.pendingCalibration = false;
-        if (after !== before) this.repositionSelectedSource();
+        if (after !== before) this.repositionActiveSources();
         break;
       case 'CALIBRATION_FAILED':
         this.pendingCalibration = false;
@@ -561,17 +595,19 @@ class AttuneAppController implements AppController {
       case 'PAUSE':
         if (before.phase === 'ready' && before.selectedRecordingId !== undefined
           && !['paused', 'stopped', 'ended', 'empty'].includes(before.playback.state)) {
-          this.audioPlayer?.pause(++this.selectionGeneration, 'user');
+          const focusId = before.selectedRecordingId;
+          this.soundscape?.pauseById(this.mintSelectionGeneration(focusId), focusId, 'user');
         }
         break;
       case 'STOP':
         if (before.phase === 'ready' && before.selectedRecordingId !== undefined
           && !['stopped', 'empty'].includes(before.playback.state)) {
-          this.audioPlayer?.stop(++this.selectionGeneration);
+          const focusId = before.selectedRecordingId;
+          this.soundscape?.stopById(this.mintSelectionGeneration(focusId), focusId);
         }
         break;
       case 'SET_MASTER_GAIN':
-        if (after !== before) this.audioPlayer?.setMasterGain(after.masterGain);
+        if (after !== before) this.soundscape?.setMasterGain(after.masterGain);
         break;
       case 'RECENTER_PANEL': {
         if (!before.debugMode && before.phase === 'ready' && before.sessionActive) {
@@ -659,12 +695,12 @@ class AttuneAppController implements AppController {
   }
 
   private startXr(): void {
-    const audioPlayer = this.audioPlayer;
+    const soundscape = this.soundscape;
     const xrController = this.xrController;
-    if (audioPlayer === null || xrController === null) return;
+    if (soundscape === null || xrController === null) return;
     ++this.locationGeneration;
     this.pendingLocation = null;
-    const audioResume = audioPlayer.resumeContext();
+    const audioResume = soundscape.resumeContext();
     let operation;
     try {
       operation = xrController.start();
@@ -723,50 +759,70 @@ class AttuneAppController implements AppController {
     if (before.phase !== 'ready' || before.calibration === undefined) return;
     if (!Object.hasOwn(before.recordingEligibility, recordingId)
       || before.recordingEligibility[recordingId] === 'unsupported') return;
-    if (before.selectedRecordingId === recordingId) {
+    const cap = this.runtimeConfig?.maxSimultaneousSources ?? 1;
+    const isActive = before.activeRecordingIds.includes(recordingId);
+    if (cap > 1 && isActive) {
+      // v1.7 toggle-off (PRD delta D-4); the reducer removed the id in this action.
+      this.soundscape?.deactivate(this.mintSelectionGeneration(recordingId), recordingId);
+      return;
+    }
+    if (before.selectedRecordingId === recordingId && isActive) {
       if (before.playback.state === 'loading' || before.playback.state === 'playing') return;
-      const generation = ++this.selectionGeneration;
+      const generation = this.mintSelectionGeneration(recordingId);
       if (before.playback.state === 'error') {
-        this.selectRecording(generation, recordingId);
+        this.activateRecording(generation, recordingId);
       } else {
-        void this.audioPlayer?.play(generation);
+        void this.soundscape?.playById(generation, recordingId);
       }
       return;
     }
-    this.selectRecording(++this.selectionGeneration, recordingId);
+    this.activateRecording(this.mintSelectionGeneration(recordingId), recordingId, before);
   }
 
   private runPlay(before: AppState): void {
     if (before.phase !== 'ready' || before.selectedRecordingId === undefined
       || before.playback.state === 'playing' || before.playback.state === 'loading') return;
-    const generation = ++this.selectionGeneration;
-    if (before.playback.state === 'error') {
-      this.selectRecording(generation, before.selectedRecordingId);
+    const focusId = before.selectedRecordingId;
+    const generation = this.mintSelectionGeneration(focusId);
+    if (!before.activeRecordingIds.includes(focusId)) {
+      // Play re-activates a focus that was toggled out of the soundscape.
+      this.activateRecording(generation, focusId, before);
+    } else if (before.playback.state === 'error') {
+      this.activateRecording(generation, focusId);
     } else {
-      void this.audioPlayer?.play(generation);
+      void this.soundscape?.playById(generation, focusId);
     }
   }
 
-  private selectRecording(generation: number, recordingId: string): void {
+  private activateRecording(generation: number, recordingId: string, before?: AppState): void {
     const record = this.findRecording(recordingId);
     const position = record === undefined ? null : this.positionFor(record);
-    if (record !== undefined && position !== null) {
-      void this.audioPlayer?.select(generation, record, position);
+    if (record === undefined || position === null) return;
+    if (before !== undefined && !before.activeRecordingIds.includes(recordingId)) {
+      const cap = this.runtimeConfig?.maxSimultaneousSources ?? 1;
+      if (before.activeRecordingIds.length >= cap) {
+        // The coordinator recycles the oldest unit inside activate(); drop the
+        // evicted id's generation stamp so stale events cannot re-enter.
+        const evicted = before.activeRecordingIds[0];
+        if (evicted !== undefined) delete this.selectionGenerationsById[evicted];
+      }
     }
+    void this.soundscape?.activate(generation, record, position);
   }
 
   private runLifecyclePauseEffect(state: AppState): void {
-    if (state.selectedRecordingId !== undefined) {
-      this.audioPlayer?.pause(this.selectionGeneration, 'lifecycle');
+    if (state.activeRecordingIds.length > 0) {
+      // One broadcast generation for all assigned units (ADR 0003).
+      this.soundscape?.pauseAll(this.selectionGeneration, 'lifecycle');
     }
   }
 
-  private repositionSelectedSource(): void {
-    const selected = this.state.selectedRecordingId;
-    if (selected === undefined) return;
-    const record = this.findRecording(selected);
-    const position = record === undefined ? null : this.positionFor(record);
-    if (position !== null) this.audioPlayer?.setPosition(position);
+  private repositionActiveSources(): void {
+    for (const recordingId of this.state.activeRecordingIds) {
+      const record = this.findRecording(recordingId);
+      const position = record === undefined ? null : this.positionFor(record);
+      if (position !== null) this.soundscape?.setPosition(recordingId, position);
+    }
   }
 
   private positionFor(record: NormalizedRecording): THREE.Vector3 | null {
@@ -917,6 +973,7 @@ class AttuneAppController implements AppController {
       config: this.config,
       locationGeneration: this.locationGeneration,
       selectionGeneration: this.selectionGeneration,
+      selectionGenerationsById: this.selectionGenerationsById,
       sessionGeneration: this.sessionGeneration,
       wallClockMs: this.wallClockMs(),
     };
@@ -965,8 +1022,8 @@ class AttuneAppController implements AppController {
       this.visibilityHandlerInstalled = false;
     }
     this.xrController?.setInteractionSurface(null);
-    this.audioPlayer?.dispose();
-    this.audioPlayer = null;
+    this.soundscape?.dispose();
+    this.soundscape = null;
     this.mapPanel?.dispose();
     this.mapPanel = null;
     const xr = this.xrController;

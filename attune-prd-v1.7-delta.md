@@ -49,7 +49,10 @@ Anything beyond the cap, per-source transport UI, and any second
 - In `ready`, a marker trigger MUST toggle that recording's membership in the
   audible set. Activation starts playback of that source; deactivation stops
   it. `selectedRecordingId` (focus, detail column) tracks the last toggled
-  recording and is independent of membership.
+  recording and is independent of membership. At cap 1, a trigger on the
+  already-active focus retains v1.6 semantics instead of toggling off — no-op
+  while loading/playing, resume when paused/stopped/ended, reload on error —
+  because D-2 identity takes precedence.
 - `AppState` gains `activeRecordingIds` (activation order, oldest first) and
   `playbackById` (per-id `PlaybackSnapshot`).
 - Activating beyond the cap MUST evict the oldest active source by recycling

@@ -178,6 +178,9 @@ export interface AppState {
   calibration?: GeoFrame;
   selectedRecordingId?: string;
   playback: PlaybackSnapshot;
+  /** Assigned soundscape membership in activation order, oldest first (ADR 0003). */
+  activeRecordingIds: readonly string[];
+  playbackById: Readonly<Record<string, PlaybackSnapshot>>;
   masterGain: number;
   audioGestureRequired: boolean;
   error?: AppErrorState;
@@ -231,7 +234,7 @@ export type AppAction =
   | { type: 'TOGGLE_PANEL' }
   | { type: 'EXIT_XR' }
   | { type: 'XR_ENDED'; sessionGeneration: number }
-  | { type: 'PLAYBACK_SNAPSHOT'; generation: number; snapshot: PlaybackSnapshot }
+  | { type: 'PLAYBACK_SNAPSHOT'; generation: number; recordingId: string; snapshot: PlaybackSnapshot }
   | { type: 'CLEAR_RECOVERABLE_ERROR' };
 
 export type ContentRejectionCode =
